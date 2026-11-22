@@ -1,0 +1,23 @@
+preset:
+  name: orchestra-langsmith
+  description: LangSmith trace ingest (generated)
+network_policies:
+  orchestra_langsmith:
+    name: orchestra_langsmith
+    endpoints:
+    - host: api.smith.langchain.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      rules:
+      - allow:
+          method: POST
+          path: /runs/**
+      - allow:
+          method: PATCH
+          path: /runs/**
+      - allow:
+          method: GET
+          path: /info
+    binaries:
+    - path: /opt/orchestra/venv/bin/python3*

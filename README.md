@@ -1,29 +1,157 @@
-# Supervisor / Handoff 멀티 에이전트 여행 플래너 (LangGraph)
+# Multi-Agent Orchestra — 계층형 슈퍼바이저 × LangSmith × NemoClaw
 
-날씨 · 맛집 · 숙소예약 3개 전문 에이전트를 네 가지 구조로 구성한 설계 골격입니다.
-툴은 모두 mock이며, 실행 검증 전의 설계용 코드입니다.
+날씨·맛집·숙소·결제 등 여러 전문 에이전트를 **총괄 → 팀장 → 실무자** 계층으로 조직하고,
+**도메인(여행·결제)은 교체 가능한 팩**으로, **보안 필터는 5단계 체인**으로 끼워 넣으며,
+위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
+LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-| 안 | 파일 | 적합한 경우 |
+> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(60 tests), 나머지는 Codex 인수인계 중입니다.
+> 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#nemoclaw-보완-예정) 참고).
+
+| 문서 | 내용 |
+|---|---|
+| [`docs/DESIGN.md`](docs/DESIGN.md) | 전체 설계서 (아키텍처·스펙·LangSmith 24개 기능 지도·NemoClaw 배치) |
+| [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **인수인계**: 끝난 것 / 남은 일 C1~C15 / 설계 이탈 / 주의사항 |
+| [`docs/NEMOCLAW_ROADMAP.md`](docs/NEMOCLAW_ROADMAP.md) | NemoClaw 보완 계획 N1~N7, 한계, 설치 후 확인 체크리스트 |
+| [`AGENTS.md`](AGENTS.md) | Codex 작업 규칙·PR 템플릿 |
+
+## 빠른 실행
+
+```bash
+pip install -r requirements.txt
+python -m pytest -q tests                                   # 60 passed
+python -I examples/simulate_hierarchical.py --list          # 시나리오 5개
+python -I examples/simulate_hierarchical.py                 # 제주 + 호텔 hold + 승인 결제
+python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
+python -I examples/simulate_hierarchical.py --scenario sandbox_egress_denied --mode graph
+python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress preset drift 검사
+```
+
+## 이번에 구현된 것
+
+```
+orchestra/                    도메인을 모르는 코어
+  specs.py  org.py            선언형 조직도(OrgSpec), 구조 검증, 팬아웃 자동 분할(팀장당 선택지 ≤5)
+  filters/                    FilterChain(5단계) + 내장 필터 + 툴 래퍼(승인/샌드박스/마지막 방어선)
+  patterns/                   hierarchical_graph.py, hierarchical_tools.py  ← 계층형 + handoff + report/escalate
+  models/                     ScriptedChatModel(LLM 없이 실제 그래프 실행), ModelFactory, 프라이버시 라우팅
+  sandbox/                    SandboxRunner 계약, Fake 러너, nemoclaw/policy.py (egress preset 생성·검증)
+  hitl.py runtime.py service.py simulation.py
+domains/                      교체 가능한 도메인 팩
+  travel/                     툴 17개, 예약은 hold(임시 점유)까지만
+  payment/                    intent → 사용자 승인 → capture → 예약 확정, 상태기계·멱등성·한도·hold 만료
+orgs/travel_payment.yaml      조직도 (총괄 1 + 팀장 4 + 실무자 10)
+scenarios/*.yaml              시뮬레이션·검증 공용 시나리오 5개
+nemoclaw/presets/*.yaml       ToolSpec 에서 생성된 egress 정책 (CI drift 검사)
+```
+
+### 핵심 설계 결정
+- **도메인 교체**: 툴·에이전트·필터·시나리오는 `domains/*` 팩. 코어는 도메인을 import 하지 않는다(테스트로 강제).
+- **금액은 LLM 이 정하지 않는다**: `create_payment_intent(hold_ids)` 가 hold 합계로 서버에서 계산.
+- **승인은 겹으로**: ① 금액 필터 → ② `side_effect_policy`(COMMIT=승인 필요) → ③ **툴 래퍼 마지막 방어선**(필터를 다 꺼도 승인 장부 없이는 capture 불가). 승인은 1회용, 무응답=거절.
+- **interrupt 재개 안전**: 재개 시 툴 노드가 재실행돼도 결제는 정확히 1번(테스트 고정).
+- **필터는 fail-closed**: 필터가 예외를 던지면 BLOCK. 샌드박스 모드인데 러너가 없으면 실행 중단.
+- **계층형 버그 수정**: `langgraph_supervisor` 가 멤버마다 거는 `member→supervisor` 고정 엣지 때문에, handoff 중 팀장이 끼어드는 문제를 발견·수정(`_detach_to_supervisor`).
+- **NemoClaw egress 정책은 선언에서 생성**: 같은 host:port 가 두 샌드박스에 열리면 검증 실패, 추론 제공자 호스트·`access: full`·와일드카드 금지, `closed` 모드는 LangSmith preset 자체를 만들지 않음.
+
+### 실행 결과 (`python -I examples/simulate_hierarchical.py`, 결제 구간 발췌)
+LLM 없이 라우팅만 스크립트로 고정하고, **실제 그래프·필터·승인·샌드박스 코드 경로**를 모두 탄다. 값은 mock.
+
+```text
+  [LLM #19] payment_lead: checkout_agent 호출 → 호출 transfer_to_checkout_agent
+⑫ checkout_agent (실무자)
+  [LLM #20] checkout_agent: 호출 create_payment_intent(hold_ids=['hold_0001'])
+      [FILTER] pre_tool idempotency(create_payment_intent): modify — idempotency_key injected
+      [FILTER] pre_tool side_effect_policy(create_payment_intent): route_sandbox — create_payment_intent runs in orchestra-payments
+      [SANDBOX orchestra-payments] create_payment_intent ok (policy rev 1)
+      · tool create_payment_intent(hold_ids=['hold_0001']) -> {'intent_id': 'pi_0001', 'amount': 180000, 'currency': 'KRW', 'status': 'created', 'hold_ids': ['hold_0001']}
+  [LLM #21] checkout_agent: 호출 capture_payment(intent_id='pi_0001')
+      [FILTER] pre_tool idempotency(capture_payment): modify — idempotency_key injected
+      [FILTER] pre_tool amount_limit(capture_payment): require_approval — 결제 180,000원 사용자 승인 필요
+      [FILTER] pre_tool side_effect_policy(capture_payment): require_approval — commit tool capture_payment needs user approval
+      [HITL] 사용자 승인: 예
+      [FILTER] pre_tool side_effect_policy(capture_payment): route_sandbox — capture_payment runs in orchestra-payments
+      [SANDBOX orchestra-payments] capture_payment ok (policy rev 1)
+      · tool capture_payment(intent_id='pi_0001') -> {'intent_id': 'pi_0001', 'status': 'captured', 'receipt_id': 'rcpt_0001', 'amount': 180000, 'currency': 'KRW'}
+  [LLM #22] checkout_agent: 호출 confirm_booking(intent_id='pi_0001')
+      [FILTER] pre_tool idempotency(confirm_booking): modify — idempotency_key injected
+      [FILTER] pre_tool side_effect_policy(confirm_booking): route_sandbox — confirm_booking runs in orchestra-payments
+      [SANDBOX orchestra-payments] confirm_booking ok (policy rev 1)
+      · tool confirm_booking(intent_id='pi_0001') -> {'intent_id': 'pi_0001', 'status': 'confirmed', 'receipt_id': 'rcpt_0001', 'bookings': ['h1 standard 2026-11-28 1박 2명']}
+  [LLM #23] checkout_agent: 결제 180,000원 완료, 영수증 rcpt_0001, 예약 확정
+⑬ payment_lead (총괄/팀장)
+  [LLM #24] payment_lead: 호출 report_to_parent(status='done', summary='결제 완료 및 예약 확정', artifacts={'receipt_id': 'rcpt_0001'})
+      [REPORT payment_lead] done: 결제 완료 및 예약 확정
+  [LLM #25] payment_lead: 결제·확정 완료 → 총괄에 보고
+⑭ travel_director (총괄/팀장)
+  [LLM #26] travel_director: 최종: 비(70%) → 실내 코스(고기국수 → 흑돼지), 제주시내 호텔 1박 hold → 180,000원 승인·결제·예약 확정 완료.
+
+[interrupt #1] 180,000원을 Orchestra Travel (mock)에 결제할까요? (결제 후 환불 가능)  → 응답: 예
+
+최종 답변:
+  최종: 비(70%) → 실내 코스(고기국수 → 흑돼지), 제주시내 호텔 1박 hold → 180,000원 승인·결제·예약 확정 완료.
+
+슈퍼바이저(총괄/팀장) LLM 호출 13회, 전체 LLM 호출 26회 (조직 깊이 2)
+
+--- expect 검증 ---
+PASS
+```
+
+전체 흐름: `travel_director → planning_lead → (weather_agent ⇢ restaurant_agent) → booking_lead → hotel_agent → payment_lead → checkout_agent`.
+
+| 시나리오 | 검증 포인트 |
+|---|---|
+| `jeju_trip_payment` | 전체 계층 흐름 + 팀 내 handoff + HITL 승인 + 샌드박스 결제 + 예약 확정 |
+| `jeju_payment_rejected` | 사용자가 거절 → capture 미실행, 확정 없음 |
+| `payment_over_limit` | 스위트 2,400,000원 → `amount_limit` 차단, 승인 요청조차 없음 → 대안 제시 |
+| `pii_bulk_blocked` | 게이트에서 차단, LLM 호출 0회 |
+| `sandbox_egress_denied` | 결제 호스트가 정책에서 빠짐 → 샌드박스가 egress 거부 → 결제 미실행, 운영자 승인 안내 |
+
+## 분담과 남은 작업
+
+틀리기 쉬운 코어는 구현·테스트까지 끝났고, 규칙이 정해진 나머지는 Codex 가 이어받는다. 상세 표는 [`CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md).
+
+| 영역 | 상태 |
+|---|---|
+| 스펙/조직도/팬아웃, 필터 체인·내장 필터, 툴 래퍼, HITL, ScriptedChatModel | ✅ 완료 |
+| 계층형 그래프·도구, 서비스, travel·payment 팩, 시뮬레이션·시나리오 5종 | ✅ 완료 |
+| NemoClaw 정책 생성·검증·drift·fail-closed 함수, Fake 샌드박스 | ✅ 완료 (실제 NemoClaw 연동 ⬜) |
+| 패키징(pyproject), 기존 구조 shim·중복 제거 | ⬜ C1~C2 |
+| 플러그인 14개 벤더링·카탈로그·툴 매핑·`claude_dev` 팩 | ⬜ C3~C7 |
+| module-lib 어댑터 5종, hookify 규칙 필터, 시나리오 4종 추가·`concert_demo` | ⬜ C8~C10 |
+| **LangSmith 전 기능**(24개) + `showcase` CLI | ⬜ C11 |
+| **NemoClaw 실행 계층** (러너·워커·추론·감사·코드 샌드박스) | ⬜ C12 → 아래 |
+| v1 백엔드(`langchain.agents.create_agent`), playground 탭 | ⬜ C14~C15 |
+
+## NemoClaw 보완 예정
+
+현재는 **"정책을 선언에서 생성하고 검증하는 계층"까지**이며, 실제 샌드박스에서 실행하는 계층은 아직 없다. 계획 전문은 [`docs/NEMOCLAW_ROADMAP.md`](docs/NEMOCLAW_ROADMAP.md).
+
+| 단계 | 내용 | 상태 |
 |---|---|---|
-| A. 슈퍼바이저 | `travel_planner/supervisor_graph.py` | "일정 다 짜줘" 원샷 일정표 (예약 불가) |
-| B. 핸드오프 | `travel_planner/handoff_graph.py` | 대화하며 하나씩 정하고 예약 |
-| A+B 하이브리드 | `travel_planner/hybrid_graph.py` | 초안 생성 → 사용자 승인 → 예약 대화로 이양 |
-| 계층형 (Hierarchical) | 브랜치 `01-hierarchical-supervisor` | 하위 에이전트 8개 이상: 총괄 → 팀장 → 실무자 |
+| N0 | ToolSpec→preset 생성·검증·drift, Fake 러너, 보안모드↔preset 대응 | ✅ |
+| N1 | 실제 러너: `nemoclaw`/`openshell` CLI 래퍼(allowlist·dry-run), `doctor` | ⬜ |
+| N2 | 샌드박스 내부 워커 + 전송(stdio/포워딩), **이중 필터 검사**, 분산 트레이싱 헤더 | ⬜ |
+| N3 | 기동 시 적용 preset 일치 점검(**불일치면 기동 실패**), LangSmith 경로 규칙 실측 | ⬜ |
+| N4 | 추론은 `inference.local` 경유, 프라이버시 라우터(PII/PCI → 로컬 모델) | ⬜ |
+| N5 | egress deny/승인 이벤트 → LangSmith feedback·annotation queue | ⬜ |
+| N6 | 코드 실행 샌드박스(`orchestra-code`), Landlock/프로세스 계층 정의, (선택) Deep Agents Code | ⬜ |
+| N7 | `Dockerfile.worker`, 운영 절차 문서 | ⬜ |
+
+**알려진 한계**: ① `binaries` 가 `python3*` 글롭이라 실행파일 단위가 아니라 **샌드박스 단위 격리**에 의존 → 결제 샌드박스엔 워커 외 코드를 두지 않음, ② `openshell policy set` 은 정책 전체를 교체하므로 운영 변경은 `policy-add` 로만, ③ 파일시스템·프로세스 계층은 **샌드박스 재생성**이 필요, ④ 승인·결제 장부는 현재 프로세스 메모리, ⑤ CLI·정책 스키마는 NemoClaw 버전마다 바뀔 수 있어 **설치된 버전에서 먼저 확인**(`[VERIFY]`).
+
+---
+
+# 부록 — 기존 골격 (supervisor / handoff / hybrid / hierarchical, LangSmith 연동)
+
+> 아래는 이 저장소의 출발점이던 설계 골격(`travel_planner/`)의 설명입니다. 코드는 그대로 남아 있으며(기존 테스트 14개 통과),
+> 신규 `orchestra/` 로의 하위 호환 shim 은 Codex 작업 C2 입니다. 신규 계층형 구현과 시뮬레이션은 위 섹션을 따르세요.
 
 ## 구조
 
 - **A**: `supervisor ⇄ {weather, restaurant, hotel}`. 비 오면 실내 맛집 → 맛집 동선 근처 숙소 → 종합. 숙소 에이전트는 예약 툴 없음.
 - **B**: `weather ⇄ restaurant ⇄ hotel`. `transfer_to_*` 툴로 제어권을 넘기며 `MemorySaver`로 멀티턴 유지.
 - **A+B**: `planner(A) → approval(interrupt) → hotel_booking`. 거절/변경 시 `planner`로 복귀. `draft_plan`을 State로 넘겨 날짜·지역을 다시 묻지 않음.
-
-## 브랜치
-
-| 번호 | 브랜치 | 내용 |
-|---|---|---|
-| 01 | `01-hierarchical-supervisor` | 계층형 코드 (`hierarchical_graph.py`, `hierarchical_tools.py`) + 흐름 시뮬레이션 `examples/simulate_hierarchical.py` |
-| 02 | `02-langsmith-observability` | 01 포함 + LangSmith 연동: 보안 모드·게이트·로컬 평가·병목 모니터링 |
-
-`main`에는 설계 문서(이 README)와 A / B / A+B 코드가 있고, 계층형 구현은 01, LangSmith 연동은 02 브랜치에 있습니다. (02는 01을 포함합니다.)
 
 ## 계층형(Hierarchical) 구조
 
@@ -49,52 +177,12 @@
 4. **예약/결제 팀장**: `hotel_agent`가 검색 → 재고 확인 → 예약을 실행하고, 결과를 보고받습니다.
 5. **최종 완료**: 총괄이 두 팀장의 보고를 합쳐 사용자에게 답변합니다.
 
-### 실행 결과
-
-`examples/simulate_hierarchical.py` (브랜치 `01-hierarchical-supervisor`)를 실행한 출력입니다.
-LLM 없이 라우팅을 스크립트로 고정하고 mock 툴을 실제로 호출하므로, 값은 mock 데이터입니다.
-
-```text
-요청: 이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해 줘
-
-① 최상위 총괄 (travel_director)
-  [LLM #1] travel_director: 일정 기획 + 예약/결제 두 팀 필요 → planning_lead 먼저 호출
-
-② 일정 기획 팀장 (planning_lead)
-  [LLM #2] planning_lead: weather_agent 호출
-      · tool get_weather(city='제주', date='2026-11-21') -> {'city': '제주', 'date': '2026-11-21', 'rain_prob': 70, 'summary': '비'}
-      · tool get_hourly_forecast(city='제주', date='2026-11-21') -> [{'hour': 9, 'rain_prob': 40}, {'hour': 12, 'rain_prob': 70}, {'hour': 15, 'rain_prob': 80}, {'hour': 18, 'rain_prob': 60}]
-  [LLM #3] planning_lead: 강수확률 70% → 실내 위주로 restaurant_agent 호출
-      · tool search_restaurants(city='제주', indoor_only=True) -> [{'id': 'r1', 'name': '제주 고기국수 맛집', 'indoor': True}, {'id': 'r2', 'name': '제주 흑돼지 구이집', 'indoor': True}]
-  [LLM #4] planning_lead: 코스 초안 완성 ['제주 고기국수 맛집', '제주 흑돼지 구이집'] → 총괄에게 보고
-
-③ 최상위 총괄
-  [LLM #5] travel_director: 코스 완성 확인 → booking_lead 에게 숙소 예약 지시
-
-④ 예약/결제 팀장 (booking_lead)
-  [LLM #6] booking_lead: hotel_agent 호출
-      · tool search_hotels(city='제주', near='제주시내', checkin='2026-11-21', nights=1) -> [{'id': 'h1', 'name': '제주시내 호텔', 'price_per_night': 180000, 'checkin': '2026-11-21', 'nights': 1}]
-      · tool check_room(hotel_id='h1', checkin='2026-11-21', nights=1) -> {'hotel_id': 'h1', 'available': True}
-      · tool book_hotel(hotel_id='h1', guests=2, checkin='2026-11-21', nights=1) -> {'status': 'confirmed', 'hotel_id': 'h1', 'guests': 2, 'checkin': '2026-11-21', 'nights': 1}
-  [LLM #7] booking_lead: 예약 confirmed → 총괄에게 보고
-
-⑤ 최종 완료 (travel_director)
-  [LLM #8] travel_director: 두 팀 보고 종합 → 사용자에게 최종 답변
-
-최종 답변:
-  - 날씨: 2026-11-21 강수확률 70% → 실내 위주 코스
-  - 맛집 코스: 제주 고기국수 맛집 → 제주 흑돼지 구이집
-  - 숙소: 제주시내 호텔 (2026-11-21 체크인, 1박, 2명) 예약 confirmed, 180,000원
-
-슈퍼바이저 판단용 LLM 호출 8회 (실무자 에이전트의 툴 호출용 LLM 호출은 제외)
-```
-
 ### 계층형 구조 도입 시 주의할 점
 
 - **응답 지연(Latency)과 비용 증가**: `총괄 → 팀장 → 실무자 → 팀장 → 총괄` 순으로 LLM 호출 단계가 깊어지므로 응답이 느려지고 토큰 소모가 큽니다.
 - **실무 팁**: 처음부터 계층형으로 짜지 말고 단일 슈퍼바이저나 핸드오프로 시작하세요. 에이전트 개수가 7~8개를 넘어가며 정확도가 떨어질 때 팀을 나누어 계층형으로 승격시키는 것이 좋습니다.
 
-## LangSmith 연동 (브랜치 `02-langsmith-observability`)
+## LangSmith 연동 (`travel_planner/observability.py` 등, 기존 4구조용 외곽 래퍼)
 
 기존 4개 구조(supervisor / handoff / hybrid / hierarchical)는 수정하지 않고, 컴파일된 그래프를 **바깥에서 감싸는** 방식으로 연결합니다.
 
@@ -152,8 +240,8 @@ LangSmith 에서 `pattern:hierarchical` 태그나 `metadata.pattern`으로 구�
 ### 직접 실행해 보기 (브라우저 플레이그라운드)
 
 ```bash
-git clone https://github.com/ai-agent-orchestrator/supervisor-handoff-multi-agent
-cd supervisor-handoff-multi-agent && git checkout 02-langsmith-observability
+git clone https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw
+cd langsmith-multi-agent-nemoclaw
 pip install langsmith langchain-core pytest
 python examples/playground.py        # → http://127.0.0.1:8765
 ```

@@ -1,0 +1,121 @@
+id: payment_over_limit
+title: 스위트룸 2,400,000원 → amount_limit 차단, 승인 요청 없음
+org: orgs/travel_payment.yaml
+request: 이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해서 결제까지 해줘
+context:
+  today: '2026-11-22'
+  guests: 2
+approve: []
+script:
+  travel_director:
+  - tool_calls:
+    - name: transfer_to_planning_lead
+    content: 일정 기획 필요 → planning_lead 먼저 호출
+  - tool_calls:
+    - name: transfer_to_booking_lead
+    content: 코스 확정 확인 → booking_lead 에 숙소 hold 지시
+  - tool_calls:
+    - name: transfer_to_payment_lead
+    content: hold 확보 확인 → payment_lead 에 결제 위임
+  - content: 스위트룸(2,400,000원)은 결제 상한을 넘습니다. 일반 객실(180,000원)로 다시 진행할까요?
+  planning_lead:
+  - tool_calls:
+    - name: transfer_to_weather_agent
+    content: weather_agent 호출
+  - tool_calls:
+    - name: report_to_parent
+      args:
+        status: done
+        summary: 강수 70% → 실내 코스 확정
+        artifacts:
+          course:
+          - 제주 고기국수 맛집
+          - 제주 흑돼지 구이집
+  - content: 코스 확정 → 총괄에 보고
+  weather_agent:
+  - tool_calls:
+    - name: get_weather
+      args:
+        city: 제주
+        date: '2026-11-28'
+  - tool_calls:
+    - name: get_hourly_forecast
+      args:
+        city: 제주
+        date: '2026-11-28'
+  - tool_calls:
+    - name: transfer_to_restaurant_agent
+    content: 강수확률 70% → 실내 위주로 restaurant_agent 에 직접 이양
+  restaurant_agent:
+  - tool_calls:
+    - name: search_restaurants
+      args:
+        city: 제주
+        indoor_only: true
+  - content: '실내 맛집 2곳: 제주 고기국수 맛집, 제주 흑돼지 구이집'
+  booking_lead:
+  - tool_calls:
+    - name: transfer_to_hotel_agent
+    content: hotel_agent 호출
+  - tool_calls:
+    - name: report_to_parent
+      args:
+        status: done
+        summary: 객실 hold 완료
+        artifacts:
+          hold_ids:
+          - hold_0001
+          amount: 180000
+  - content: hold_0001 (180,000원) 확보 → 총괄에 보고
+  hotel_agent:
+  - tool_calls:
+    - name: search_hotels
+      args:
+        city: 제주
+        near: 제주시내
+        checkin: '2026-11-28'
+        nights: 1
+        room_type: suite
+  - tool_calls:
+    - name: check_room
+      args:
+        hotel_id: h1
+        checkin: '2026-11-28'
+        nights: 1
+  - tool_calls:
+    - name: hold_room
+      args:
+        hotel_id: h1
+        guests: 2
+        checkin: '2026-11-28'
+        nights: 1
+        room_type: suite
+  - content: 객실 임시 점유 hold_0001, 180,000원 (15분 내 결제 필요)
+  payment_lead:
+  - tool_calls:
+    - name: transfer_to_checkout_agent
+  - tool_calls:
+    - name: escalate
+      args:
+        reason: 결제 상한 초과
+  - content: 상한 초과 → 총괄에 에스컬레이션
+  checkout_agent:
+  - tool_calls:
+    - name: create_payment_intent
+      args:
+        hold_ids:
+        - hold_0001
+  - content: 금액 2,400,000원이 결제 상한(1,000,000원)을 넘어 차단되었습니다.
+expect:
+  tools_in_order:
+  - get_weather
+  - get_hourly_forecast
+  - search_restaurants
+  - search_hotels
+  - check_room
+  - hold_room
+  interrupts: 0
+  blocked_by: amount_limit
+  flags:
+    blocked: false
+    payment_captured: false

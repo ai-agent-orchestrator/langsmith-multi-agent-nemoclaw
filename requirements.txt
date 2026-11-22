@@ -3,3 +3,6 @@ langgraph-supervisor
 langchain-core
 langchain-anthropic
 langsmith
+pydantic>=2
+pyyaml
+pytest

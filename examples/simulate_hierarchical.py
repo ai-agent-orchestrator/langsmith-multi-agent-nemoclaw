@@ -1,72 +1,70 @@
-"""계층형 흐름 시뮬레이션 (LLM 미사용, 라우팅은 스크립트로 고정).
+"""계층형 흐름 시뮬레이션 — LLM 없이 '실제 컴파일된 그래프'를 ScriptedChatModel 로 실행한다.
 
-요청: "이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해 줘"
-실제 mock 툴을 호출해 총괄 → 팀장 → 실무자 → 팀장 → 총괄 흐름과 결과값을 출력한다.
+기존(print 전용) 스크립트와 달리 라우팅·툴 호출·필터·승인(interrupt)·샌드박스가 전부 진짜 코드 경로를 탄다.
 
-실행: python -I examples/simulate_hierarchical.py   (저장소 루트에서)
+실행(저장소 루트):
+    python -I examples/simulate_hierarchical.py --list
+    python -I examples/simulate_hierarchical.py                      # jeju_trip_payment
+    python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
+    python -I examples/simulate_hierarchical.py --mode graph --json out/sim/jeju.json
+옵션: --approve yes|no (시나리오의 approve 덮어쓰기) / --sandbox fake|off / --security-mode closed|masked|off
 """
+from __future__ import annotations
+
+import argparse
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from travel_planner.hierarchical_tools import (  # noqa: E402
-    book_hotel, check_room, get_hourly_forecast, get_weather,
-    search_hotels, search_restaurants,
-)
-
-REQUEST = "이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해 줘"
-CITY, DATE, CHECKIN, NIGHTS, GUESTS = "제주", "2026-11-21", "2026-11-21", 1, 2
-
-llm_calls = 0
+from orchestra.simulation import check_expect, list_scenarios, render, run_scenario  # noqa: E402
 
 
-def llm(who: str, msg: str):
-    """LLM 호출 1회로 계산 (라우팅/종합 판단)."""
-    global llm_calls
-    llm_calls += 1
-    print(f"  [LLM #{llm_calls}] {who}: {msg}")
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--scenario", default="jeju_trip_payment")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--mode", choices=["print", "graph"], default="print",
+                    help="print: 흐름 서사 / graph: 서사 + 컴파일된 그래프(mermaid) + 검증 결과")
+    ap.add_argument("--approve", choices=["yes", "no"], default=None)
+    ap.add_argument("--sandbox", choices=["fake", "off"], default="fake")
+    ap.add_argument("--security-mode", default="closed")
+    ap.add_argument("--json", dest="json_out", default=None)
+    a = ap.parse_args()
+
+    if a.list:
+        for s in list_scenarios():
+            print(s)
+        return 0
+
+    approve = None if a.approve is None else [a.approve == "yes"] * 5
+    res = run_scenario(a.scenario, sandbox=a.sandbox, approve=approve, security_mode=a.security_mode)
+    print(render(res))
+    errs = check_expect(res)
+
+    if a.mode == "graph":
+        print("\n--- 컴파일된 그래프 (mermaid) ---")
+        for xray in (True, False):  # xray 는 같은 이름의 중첩 서브그래프에서 실패할 수 있어 평면 그래프로 폴백
+            try:
+                print(res.app.get_graph(xray=xray).draw_mermaid())
+                break
+            except Exception as e:  # noqa: BLE001
+                print(f"(mermaid xray={xray} 실패: {type(e).__name__})")
+    print("\n--- expect 검증 ---")
+    print("PASS" if not errs else "FAIL\n  - " + "\n  - ".join(errs))
+
+    if a.json_out:
+        out = Path(a.json_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({
+            "scenario": a.scenario, "final": res.final, "interrupts": res.interrupts, "decisions": res.decisions,
+            "errors": errs,
+            "events": [{"seq": e.seq, "kind": e.kind, **e.data} for e in res.events.events],
+        }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        print(f"saved: {out}")
+    return 0 if not errs else 1
 
 
-def tool(name: str, fn, **kw):
-    out = fn.invoke(kw)
-    print(f"      · tool {name}({', '.join(f'{k}={v!r}' for k, v in kw.items())}) -> {out}")
-    return out
-
-
-print(f"요청: {REQUEST}\n")
-
-print("① 최상위 총괄 (travel_director)")
-llm("travel_director", "일정 기획 + 예약/결제 두 팀 필요 → planning_lead 먼저 호출")
-
-print("\n② 일정 기획 팀장 (planning_lead)")
-llm("planning_lead", "weather_agent 호출")
-w = tool("get_weather", get_weather, city=CITY, date=DATE)
-tool("get_hourly_forecast", get_hourly_forecast, city=CITY, date=DATE)
-llm("planning_lead", f"강수확률 {w['rain_prob']}% → 실내 위주로 restaurant_agent 호출")
-indoor = w["rain_prob"] >= 60
-rest = tool("search_restaurants", search_restaurants, city=CITY, indoor_only=indoor)
-course = [r["name"] for r in rest]
-llm("planning_lead", f"코스 초안 완성 {course} → 총괄에게 보고")
-
-print("\n③ 최상위 총괄")
-llm("travel_director", "코스 완성 확인 → booking_lead 에게 숙소 예약 지시")
-
-print("\n④ 예약/결제 팀장 (booking_lead)")
-llm("booking_lead", "hotel_agent 호출")
-hotels = tool("search_hotels", search_hotels, city=CITY, near=rest[0]["name"].split()[0] + "시내", checkin=CHECKIN, nights=NIGHTS)
-room = tool("check_room", check_room, hotel_id=hotels[0]["id"], checkin=CHECKIN, nights=NIGHTS)
-assert room["available"]
-booked = tool("book_hotel", book_hotel, hotel_id=hotels[0]["id"], guests=GUESTS, checkin=CHECKIN, nights=NIGHTS)
-llm("booking_lead", f"예약 {booked['status']} → 총괄에게 보고")
-
-print("\n⑤ 최종 완료 (travel_director)")
-llm("travel_director", "두 팀 보고 종합 → 사용자에게 최종 답변")
-total = hotels[0]["price_per_night"] * NIGHTS
-print(
-    f"\n최종 답변:\n"
-    f"  - 날씨: {DATE} 강수확률 {w['rain_prob']}% → 실내 위주 코스\n"
-    f"  - 맛집 코스: {' → '.join(course)}\n"
-    f"  - 숙소: {hotels[0]['name']} ({CHECKIN} 체크인, {NIGHTS}박, {GUESTS}명) 예약 {booked['status']}, {total:,}원\n"
-    f"\n슈퍼바이저 판단용 LLM 호출 {llm_calls}회 (실무자 에이전트의 툴 호출용 LLM 호출은 제외)"
-)
+if __name__ == "__main__":
+    sys.exit(main())
