@@ -292,3 +292,25 @@ taint tracking. Unrecognized paraphrases, other encodings, and model reasoning
 cannot be proven safe by these rules. A recognized quoted example can also trigger
 a conservative block. Source labels attest transport, not truth. Scanner, red-team
 framework, audit signatures and real sandbox runner remain separate work.
+
+### Simulation CLI (C13)
+
+```bash
+python -I examples/simulate_hierarchical.py --org orgs/travel_payment.yaml --pattern tools --trace --json out/sim/trace.json
+```
+
+`--pattern graph` is the default and retains the previous behavior. `tools` is a
+thin entry point in the control-tool factory module and calls the same safe graph
+builder; it is not another orchestration or model backend. An explicit `--org`
+replaces the scenario organization without modifying the scenario file. A missing
+path or directory exits with status 2 and one diagnostic line before graph execution.
+`--mode print|graph` still controls presentation only; both execute the real graph.
+
+`--trace` collects local filter decisions (including ALLOW), approval requests and
+results, sandbox routes/results, and blocks. Each `[TRACE]` line is one JSON record
+with a monotonically ordered event `seq`. Newlines inside fields are escaped.
+`--json` additionally includes the same `trace` array, using existing event order
+and deduplication. Trace console text and JSON exports always pass through masking,
+even with `--security-mode off`. Trace records whitelist diagnostic fields and omit
+approval bindings/full tool args. This option does not enable LangSmith transmission.
+Without it, the existing narrative/JSON shape and event capture behavior are retained.

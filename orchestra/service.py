@@ -41,6 +41,9 @@ class OrchestraService:
         intr = result.get("__interrupt__")
         if intr:
             first = intr[0]
+            if self.app.runtime.events.capture_trace:
+                value = first.value if isinstance(first.value, dict) else {}
+                self.app.runtime.events.add("approval_request", tool=value.get("tool"), ask=value.get("ask", ""))
             return {"answer": "", "blocked": False, "reason": "", "thread_id": thread_id,
                     "interrupt": {"id": getattr(first, "id", None), "payload": first.value}}
         answer = _text(result["messages"][-1]) if result.get("messages") else ""

@@ -22,9 +22,10 @@ class EventLog:
     이벤트는 dedupe_key 를 줘서 한 번만 기록한다.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, capture_trace: bool = False) -> None:
         self.events: list[Event] = []
         self._seen: set[str] = set()
+        self.capture_trace = capture_trace
 
     def add(self, kind: str, *, dedupe_key: Optional[str] = None, **data: Any) -> None:
         if dedupe_key is not None:

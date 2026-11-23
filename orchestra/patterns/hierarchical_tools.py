@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, TYPE_CHECKING
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
@@ -18,6 +18,16 @@ from ..messages import TaskBrief as TaskBrief, TeamReport as TeamReport, Message
 from .. import hitl
 from ..runtime import Runtime
 from ..taint import ToolTaintBlocked, current_thread, reject_labelled_instructions
+
+if TYPE_CHECKING:
+    from .hierarchical_graph import BuiltApp
+
+
+def build_tools_app(org: Any, model_factory: Any, **kwargs: Any) -> BuiltApp:
+    """Expose the tool-factory hierarchy through the shared builder, without duplicating routing."""
+    from .hierarchical_graph import build_hierarchical_app
+
+    return build_hierarchical_app(org, model_factory, **kwargs)
 
 
 def handoff_tool_name(target: str) -> str:

@@ -293,3 +293,23 @@ app.invoke({"messages": [("user", "이번 주말 제주도 2박 3일 코스 짜�
 
 - `book_hotel`은 실서비스에서 결제 직전 `interrupt()`로 최종 확인을 받을 것.
 - 모델 ID와 LangGraph 버전별 API(`langgraph-supervisor`, `Command`)는 환경에 맞게 확인 필요.
+
+### 시뮬레이션 CLI (C13)
+
+```bash
+python -I examples/simulate_hierarchical.py --org orgs/travel_payment.yaml --pattern tools --trace --json out/sim/trace.json
+```
+
+`--pattern graph`가 기본이며 기존 동작을 유지합니다. `tools`는 계층 운영용 툴
+팩토리 모듈의 얇은 진입점으로 같은 공통 그래프 빌더를 호출합니다. 별도 오케스트레이션이나
+모델 백엔드가 아닙니다. `--org`는 시나리오 원본을 바꾸지 않고 조직 YAML만 대체합니다.
+없는 경로나 디렉터리는 그래프 실행 전 종료코드 2와 한 줄 오류로 거절합니다.
+기존 `--mode print|graph`는 표시 방식이며 둘 다 실제 그래프를 실행합니다.
+
+`--trace`는 필터 결정(ALLOW 포함), 승인 요청/결과, 샌드박스 라우팅/결과와 차단을
+시간순 `seq`로 수집합니다. `[TRACE]` 한 줄마다 JSON 레코드 하나가 나오고 필드 안의
+줄바꿈은 이스케이프합니다. `--json` 병용 시 같은 `trace` 배열을 추가합니다.
+기존 이벤트 순서·중복 제거를 사용하며, trace 모드 콘솔과 JSON 전체는 보안 모드가
+`off`여도 마스킹 경로를 거칩니다. 트레이스 레코드는 진단 필드만 허용하고 승인 바인딩과
+전체 툴 인자는 제외합니다. LangSmith 전송을 켜지 않습니다. `--trace`를 생략하면
+기존 출력·JSON 구조·이벤트 수집 동작을 유지합니다.

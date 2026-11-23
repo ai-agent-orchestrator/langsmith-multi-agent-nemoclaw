@@ -151,6 +151,14 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
 
     def _execute(args: dict[str, Any], route_sandbox: bool) -> Any:
         wants_box = route_sandbox or spec.sandbox == "required"
+        if rt.events.capture_trace:
+            route = "sandbox" if wants_box and rt.sandbox is not None else "direct"
+            if spec.side_effect == SideEffect.EXEC and rt.sandbox is None:
+                route = "dry_run"
+            elif wants_box and rt.sandbox is None and rt.sandbox_mode.startswith("nemoclaw"):
+                route = "unavailable"
+            rt.events.add("sandbox_route", tool=tool.name, agent=agent, sandbox=spec.sandbox_name,
+                          route=route, mode=rt.sandbox_mode)
         if spec.side_effect == SideEffect.EXEC and rt.sandbox is None:
             return {"dry_run": True, "tool": tool.name, "args": args, "note": "sandbox off: not executed"}
         if wants_box and rt.sandbox is None and rt.sandbox_mode.startswith("nemoclaw"):
