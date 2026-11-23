@@ -11,7 +11,7 @@ from orchestra import registry
 from orchestra.filters.base import Filter
 from orchestra.specs import AgentSpec, EgressRule, FilterSpec, SideEffect, TeamSpec, ToolSpec
 
-from .filters import amount_limit, hold_expiry, idempotency, state_transition
+from .filters import amount_limit, hold_expiry, idempotency, state_transition, _amount
 from .ledger import MockPaymentProvider
 from .tools import make_tools
 
@@ -45,6 +45,7 @@ class PaymentPack:
         holds = get_store(services)
         self.provider: MockPaymentProvider = services.setdefault("payments", MockPaymentProvider(holds))
         self._tools = make_tools(self.provider)
+        services["approval_amount"] = lambda tool, args: _amount(self.provider, tool, args)
 
     def tools(self) -> dict[str, tuple[BaseTool, ToolSpec]]:
         out = {}

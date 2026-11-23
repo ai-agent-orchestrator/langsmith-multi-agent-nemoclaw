@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+import os
+import math
 
 from langchain_core.tools import BaseTool, StructuredTool
 
@@ -39,6 +41,8 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
 
     def _blocked(reason: str, by: Optional[str], stage: str) -> dict:
         rt.events.add("blocked", tool=tool.name, agent=agent, reason=reason, by=by, stage=stage)
+        if by == "approval_binding":
+            raise hitl.ApprovalBindingBlocked("approval_binding_blocked")
         return {"error": "blocked", "reason": reason, "by": by}
 
     def run(**kwargs: Any) -> Any:
@@ -50,28 +54,71 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
         args = pre.payload
         route_sandbox = pre.route_sandbox
 
-        key = hitl.approval_key(tool.name, args)
+        from langgraph.config import get_config
+
+        try:
+            user_id = str(get_config().get("configurable", {}).get("request_user", "anonymous"))
+        except RuntimeError:
+            user_id = "anonymous"
+
+        def binding(arguments: dict, expires_at: float) -> hitl.ApprovalRecord:
+            amount_fn = rt.services.get("approval_amount")
+            amount = amount_fn(tool.name, arguments) if callable(amount_fn) else (pre.approval or {}).get("amount")
+            return hitl.make_approval_record(tool.name, arguments, user_id=user_id, amount=amount,
+                                            expires_at=expires_at, request_id=_thread_id(rt))
+
+        try:
+            ttl = float(os.environ.get("ORCHESTRA_APPROVAL_TTL_SECONDS", "300"))
+        except ValueError:
+            return _blocked("invalid_approval_ttl", "approval_binding", "pre_tool")
+        if not math.isfinite(ttl) or ttl <= 0:
+            return _blocked("invalid_approval_ttl", "approval_binding", "pre_tool")
+        record = binding(args, rt.clock() + ttl)
+        # Read the original interrupt payload; no ledger mutation or new expiry is permitted on resume.
+        if rt.graph is not None and rt.graph.checkpointer is not None:
+            try:
+                snapshot = rt.graph.get_state({"configurable": {"thread_id": _thread_id(rt)}}, subgraphs=True)
+            except Exception:
+                return _blocked("approval_checkpoint_unavailable", "approval_binding", "pre_tool")
+            pending = [i.value for i in snapshot.interrupts if isinstance(i.value, dict) and i.value.get("tool") == tool.name]
+            if pending:
+                try:
+                    prior = hitl.ApprovalRecord.model_validate(pending[0]["binding"])
+                    record = binding(args, prior.expires_at)
+                    if record.key != prior.key or rt.clock() >= prior.expires_at:
+                        return _blocked("approval_binding_invalid_or_expired", "approval_binding", "pre_tool")
+                except (ValueError, KeyError, TypeError):
+                    return _blocked("approval_binding_invalid", "approval_binding", "pre_tool")
+        key = record.key
         if pre.action == Action.REQUIRE_APPROVAL:
-            if not rt.approvals.is_granted(key):
+            if not rt.approvals.is_granted(key, binding=record, now=rt.clock()):
                 payload = {"ask": f"{tool.name} 실행을 승인할까요?", "tool": tool.name, "args": args,
-                           "key": key, **(pre.approval or {})}
+                           **(pre.approval or {}), "key": key, "binding": record.model_dump()}
                 approved = hitl.request(payload)          # ← interrupt. 재개되면 이 노드가 재실행된다
-                rt.events.add("approval", dedupe_key=f"approval:{key}", tool=tool.name, key=key, approved=approved)
+                rt.events.add("approval", dedupe_key=f"approval:{key}", tool=tool.name, key=key, approved=approved,
+                              binding={"user_id": record.user_id, "amount": record.amount, "expires_at": record.expires_at,
+                                       "request_id": record.request_id})
                 if not approved:
                     rt.approvals.deny(key)
                     return {"error": "approval_denied", "tool": tool.name}
-                rt.approvals.grant(key)
+                if not rt.approvals.grant(record, now=rt.clock()):
+                    return _blocked("approval_expired_or_replayed", "approval_binding", "pre_tool")
             again = chain.run(_ctx(Stage.PRE_TOOL, args, granted=True), dedupe=f"{tool.name}:granted")
             if again.action != Action.ALLOW:
                 rt.approvals.consume(key)
                 return _blocked(again.reason or "approval_not_sufficient", again.blocked_by, "pre_tool")
             args = again.payload
+            if binding(args, record.expires_at).key != key:
+                rt.approvals.consume(key)
+                return _blocked("approval_arguments_changed", "approval_binding", "pre_tool")
             route_sandbox = route_sandbox or again.route_sandbox
 
         # 마지막 방어선: COMMIT 은 승인 없이 실행 금지 (필터 구성 실수 방지)
-        if spec.side_effect == SideEffect.COMMIT and not rt.approvals.is_granted(key):
+        if spec.side_effect == SideEffect.COMMIT and not rt.approvals.is_granted(key, binding=record, now=rt.clock()):
             return _blocked("commit_without_approval", "tool_wrapper", "pre_tool")
 
+        if (pre.action == Action.REQUIRE_APPROVAL or spec.side_effect == SideEffect.COMMIT) and not rt.approvals.claim(record, now=rt.clock()):
+            return _blocked("approval_expired_or_consumed", "approval_binding", "pre_tool")
         output = _execute(args, route_sandbox)
         rt.approvals.consume(key)
         if isinstance(output, dict) and output.get("error") in ("sandbox_failed", "sandbox_unavailable"):

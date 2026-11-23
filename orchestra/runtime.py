@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+from .hitl import ApprovalRecord
 
 
 @dataclass
@@ -49,20 +51,43 @@ class ApprovalLedger:
     def __init__(self) -> None:
         self._granted: set[str] = set()
         self.history: list[dict[str, Any]] = []
+        self._records: dict[str, ApprovalRecord] = {}
+        self._consumed: set[str] = set()
+        self._lock = threading.RLock()
 
-    def is_granted(self, key: str) -> bool:
-        return key in self._granted
+    def is_granted(self, key: str, *, binding: ApprovalRecord | None = None, now: float | None = None) -> bool:
+        record = self._records.get(key)
+        return bool(record and record.decided and key in self._granted and key not in self._consumed
+                    and (time.time() if now is None else now) < record.expires_at
+                    and (binding is None or binding.key == key))
 
-    def grant(self, key: str, by: str = "user") -> None:
-        self._granted.add(key)
-        self.history.append({"key": key, "decision": True, "by": by})
+    def grant(self, record: ApprovalRecord, *, now: float | None = None) -> bool:
+        with self._lock:
+            key = record.key
+            if key in self._consumed or key in self._granted or (time.time() if now is None else now) >= record.expires_at:
+                return False
+            self._records[key] = record.model_copy(update={"decided": True})
+            self._granted.add(key)
+            self.history.append({"key": key, "decision": True, "by": record.user_id})
+            return True
+
+    def claim(self, record: ApprovalRecord, *, now: float | None = None) -> bool:
+        """Atomically consume an authorization immediately before its single execution."""
+        with self._lock:
+            if not self.is_granted(record.key, binding=record, now=now):
+                return False
+            self.consume(record.key)
+            return True
 
     def deny(self, key: str, by: str = "user") -> None:
         self._granted.discard(key)
+        self._consumed.add(key)
         self.history.append({"key": key, "decision": False, "by": by})
 
     def consume(self, key: str) -> None:
         self._granted.discard(key)
+        if key in self._records:
+            self._consumed.add(key)
 
 
 @dataclass
@@ -76,3 +101,4 @@ class Runtime:
     services: dict[str, Any] = field(default_factory=dict)
     clock: Callable[[], float] = time.time
     thread_id: str = "default"
+    graph: Any = field(default=None, repr=False)

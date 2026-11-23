@@ -13,6 +13,7 @@ from langgraph.types import Command
 from .filters.base import Action, FilterContext, Stage
 from .patterns.hierarchical_graph import BuiltApp
 from .messages import MessageContractBlocked
+from .hitl import ApprovalBindingBlocked
 
 
 def _text(msg: Any) -> str:
@@ -30,8 +31,9 @@ class OrchestraService:
         self.config_hook = config_hook      # (config, thread_id) -> config  (태그/메타데이터/콜백 추가)
         self.scope = scope or nullcontext   # 예: tracing_scope(mode)
 
-    def _cfg(self, thread_id: str) -> dict:
+    def _cfg(self, thread_id: str, user_id: str = "anonymous") -> dict:
         cfg = self.app.config(thread_id)
+        cfg["configurable"]["request_user"] = user_id
         return self.config_hook(cfg, thread_id) if self.config_hook else cfg
 
     def _finish(self, result: dict, thread_id: str) -> dict:
@@ -47,7 +49,7 @@ class OrchestraService:
                     "thread_id": thread_id, "interrupt": None}
         return {"answer": out.payload, "blocked": False, "reason": "", "thread_id": thread_id, "interrupt": None}
 
-    def ask(self, question: str, thread_id: Optional[str] = None) -> dict:
+    def ask(self, question: str, thread_id: Optional[str] = None, *, user_id: str = "anonymous") -> dict:
         thread_id = thread_id or "default"
         gate = self.app.chain.run(FilterContext(Stage.PRE_REQUEST, question, org=self.app.org.name),
                                   dedupe="request")
@@ -55,19 +57,22 @@ class OrchestraService:
             self.app.runtime.events.add("blocked", stage="pre_request", reason=gate.reason, by=gate.blocked_by)
             return {"answer": f"차단: 보안 정책 위반 요청입니다 ({gate.reason})", "blocked": True,
                     "reason": gate.reason, "thread_id": thread_id, "interrupt": None}
-        return self._invoke({"messages": [("user", question)]}, thread_id)
+        return self._invoke({"messages": [("user", question)]}, thread_id, user_id)
 
-    def resume(self, thread_id: str, decision: bool | dict) -> dict:
+    def resume(self, thread_id: str, decision: bool | dict, *, user_id: str = "anonymous") -> dict:
         """interrupt 에 대한 사용자 응답으로 그래프를 재개한다."""
-        return self._invoke(Command(resume=decision), thread_id)
+        return self._invoke(Command(resume=decision), thread_id, user_id)
 
-    def _invoke(self, payload: Any, thread_id: str) -> dict:
+    def _invoke(self, payload: Any, thread_id: str, user_id: str = "anonymous") -> dict:
         try:
             with self.scope():
-                result = self.app.graph.invoke(payload, self._cfg(thread_id))
+                result = self.app.graph.invoke(payload, self._cfg(thread_id, user_id))
         except MessageContractBlocked:
             self.app.runtime.events.add("blocked", by="message_contract", reason="message_contract_blocked")
             return {"answer": "차단: 메시지 계약 위반", "blocked": True, "reason": "message_contract_blocked",
+                    "thread_id": thread_id, "interrupt": None}
+        except ApprovalBindingBlocked:
+            return {"answer": "차단: 승인 바인딩이 유효하지 않습니다", "blocked": True, "reason": "approval_binding_blocked",
                     "thread_id": thread_id, "interrupt": None}
         return self._finish(result, thread_id)
 

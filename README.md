@@ -247,3 +247,12 @@ Quick summary of the legacy structures:
 | Hierarchical | Team-lead supervisors under a director, keeping each manager to 3–5 options (now superseded by `orchestra/`) |
 
 LangSmith wrapper modes (`TRAVEL_SECURITY_MODE`): `off` / `masked` / `closed` — in `closed`, tracing is disabled and, under NemoClaw, the LangSmith egress preset is not generated at all (physical block).
+
+Approval records bind the full canonical arguments, caller identity, server-derived
+amount, expiry and request/thread ID with a full SHA-256 key. Set
+`ORCHESTRA_APPROVAL_TTL_SECONDS` (default 300); supply the authenticated caller as
+`user_id=` to both OrchestraService.ask and resume. Legacy calls default to
+`anonymous`; this is compatibility, not authentication. Checkpointed approval
+payloads preserve the original deadline across interrupt re-execution. The ledger
+atomically claims the grant before execution. Signature fields are reserved only;
+no signing, persistence, or hash-chain audit was added.

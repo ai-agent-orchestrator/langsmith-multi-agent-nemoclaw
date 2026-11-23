@@ -142,4 +142,5 @@ def build_hierarchical_app(
         return built[name]
 
     graph = build(org.root, is_root=True)
+    rt.graph = graph
     return BuiltApp(graph, rt, org, chain, res, backend=getattr(agent_backend, "name", type(agent_backend).__name__))
