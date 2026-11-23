@@ -12,6 +12,7 @@ from langgraph.types import Command
 
 from .filters.base import Action, FilterContext, Stage
 from .patterns.hierarchical_graph import BuiltApp
+from .messages import MessageContractBlocked
 
 
 def _text(msg: Any) -> str:
@@ -54,15 +55,21 @@ class OrchestraService:
             self.app.runtime.events.add("blocked", stage="pre_request", reason=gate.reason, by=gate.blocked_by)
             return {"answer": f"차단: 보안 정책 위반 요청입니다 ({gate.reason})", "blocked": True,
                     "reason": gate.reason, "thread_id": thread_id, "interrupt": None}
-        with self.scope():
-            res = self.app.graph.invoke({"messages": [("user", question)]}, self._cfg(thread_id))
-        return self._finish(res, thread_id)
+        return self._invoke({"messages": [("user", question)]}, thread_id)
 
     def resume(self, thread_id: str, decision: bool | dict) -> dict:
         """interrupt 에 대한 사용자 응답으로 그래프를 재개한다."""
-        with self.scope():
-            res = self.app.graph.invoke(Command(resume=decision), self._cfg(thread_id))
-        return self._finish(res, thread_id)
+        return self._invoke(Command(resume=decision), thread_id)
+
+    def _invoke(self, payload: Any, thread_id: str) -> dict:
+        try:
+            with self.scope():
+                result = self.app.graph.invoke(payload, self._cfg(thread_id))
+        except MessageContractBlocked:
+            self.app.runtime.events.add("blocked", by="message_contract", reason="message_contract_blocked")
+            return {"answer": "차단: 메시지 계약 위반", "blocked": True, "reason": "message_contract_blocked",
+                    "thread_id": thread_id, "interrupt": None}
+        return self._finish(result, thread_id)
 
 
 def studio_graph(config: Optional[dict] = None) -> Any:

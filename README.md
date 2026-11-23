@@ -41,6 +41,14 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 
 ## What is implemented
 
+Message contracts require a source label (`user/tool/agent/system`) and bounded
+fields/nesting. The host maps explicit SDK roles to source labels; external
+TaskBrief/TeamReport DTOs cannot omit the label. Pre-model and handoff validation
+fail closed. Agent/tool text is JSON-framed as data with escaped delimiters;
+this is defense in depth and cannot guarantee semantic injection resistance.
+The `handoff_oversized` scenario verifies rejection on both backends.
+
+
 Agent construction supports `prebuilt` (the compatibility default) and `v1`.
 Install `pip install -e ".[agent-v1]"` and set `ORCHESTRA_AGENT_BACKEND=v1` to use
 `langchain.agents.create_agent` for both workers and team supervisors. The builder

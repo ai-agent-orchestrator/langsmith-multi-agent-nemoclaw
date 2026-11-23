@@ -5,6 +5,7 @@ from ..filters.base import Action, FilterContext, Stage
 from ..filters.chain import FilterChain
 from ..specs import AgentSpec, TeamSpec
 from langgraph.config import get_config
+from ..messages import prepare_messages
 
 
 class ModelBlocked(RuntimeError):
@@ -19,7 +20,7 @@ def model_messages(filters: FilterChain, messages: list, agent: str) -> Any:
         config = {}
     metadata = config.get("metadata", {})
     result = filters.run(FilterContext(
-        Stage.PRE_MODEL, messages, agent=agent, org=metadata.get("orchestra_org", ""),
+        Stage.PRE_MODEL, prepare_messages(messages), agent=agent, org=metadata.get("orchestra_org", ""),
         security_mode=metadata.get("security_mode", "masked"), sandbox_mode=metadata.get("sandbox_mode", "off"),
         state={"thread_id": config.get("configurable", {}).get("thread_id")},
     ))
