@@ -1,5 +1,5 @@
 """로컬 플레이그라운드: 요청이 게이트 → 총괄 → 팀장 → 실무자 → 툴로 흐르는 모습과,
-보안 모드별로 'LangSmith 에 실제로 전송되는 내용'을 브라우저에서 눈으로 확인한다.
+보안 모드별 LangSmith 전송 미리보기와 C13의 실제 컴파일 그래프 진단을 로컬에서 확인한다.
 
   pip install langsmith langchain-core pytest   (LLM·API 키 불필요)
   python examples/playground.py                 # http://127.0.0.1:8765
@@ -23,6 +23,8 @@ from travel_planner.hierarchical_tools import (  # noqa: E402
 )
 from travel_planner.monitoring import diagnose, summarize_runs  # noqa: E402
 from travel_planner.observability import masker, security_gate, security_mode  # noqa: E402
+from orchestra.simulation import list_scenarios, run_scenario as run_graph_scenario  # noqa: E402
+from orchestra.simulation_trace import export_simulation, load_trace_export  # noqa: E402
 
 HISTORY: list = []  # 병목 통계용 run 기록
 PORT = 8765
@@ -125,9 +127,23 @@ button:hover{background:#21476a}.row{margin-top:8px}label{margin-right:14px}
 pre{background:#0e141b;border:1px solid #24324a;border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin:0;min-height:40px}
 table{width:100%;border-collapse:collapse}th,td{padding:5px 8px;border-bottom:1px solid #24324a;text-align:right}th:first-child,td:first-child{text-align:left}
 .ok{color:#91cc45}.bad{color:#e08a96}.full{grid-column:1/-1}li{margin:3px 0}
+[hidden]{display:none!important}.tabs{display:flex;gap:8px;padding:10px 24px;border-bottom:1px solid #24324a;flex-wrap:wrap}
+[role=tab][aria-selected=true]{background:#287394;border-color:#78d5ef}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #91cc45;outline-offset:3px}
+#diagnostics{padding:16px 24px}select{background:#0e141b;color:#e6edf6;border:1px solid #455f79;border-radius:6px;padding:8px;max-width:100%}
+.viewer{margin-top:16px;overflow-x:auto}.viewer table{min-width:650px}.viewer td,.viewer th{text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.viewer pre{border:0;padding:0;min-height:0;font-size:12px;max-height:160px;overflow:auto}.file-control{display:inline-block;margin-left:10px}
+#panel-approvals table{min-width:0}
+#panel-approvals th:first-child,#panel-approvals td:first-child{white-space:nowrap}
+@media(max-width:760px){main{grid-template-columns:1fr;padding:12px}.tabs{padding:8px 12px}#diagnostics{padding:12px}.ev{grid-template-columns:110px 1fr}.ev .m{grid-column:2}.file-control{display:block;margin:10px 0 0}}
 </style>
-<header><h1>Travel Agent Playground</h1><div class="sub">게이트·마스킹·병목 진단은 실제 코드, 에이전트 호출/지연/토큰은 시뮬레이션 (LLM 미사용)</div></header>
-<main>
+<header><h1>Travel Agent Playground</h1><div class="sub">로컬·LLM 미사용 · 레거시 데모와 컴파일 그래프 진단을 탭으로 구분합니다. 실제 LangSmith/NemoClaw 연결은 없습니다.</div></header>
+<nav class="tabs" role="tablist" aria-label="실행 진단">
+<button id="tab-legacy" role="tab" aria-selected="true" aria-controls="legacy" data-tab="legacy">레거시 데모</button>
+<button id="tab-trace" role="tab" aria-selected="false" aria-controls="panel-trace" data-tab="trace" tabindex="-1">트레이스</button>
+<button id="tab-filters" role="tab" aria-selected="false" aria-controls="panel-filters" data-tab="filters" tabindex="-1">필터 결정</button>
+<button id="tab-approvals" role="tab" aria-selected="false" aria-controls="panel-approvals" data-tab="approvals" tabindex="-1">승인 이력</button>
+</nav>
+<main id="legacy" role="tabpanel" aria-labelledby="tab-legacy">
 <div class="card"><h2>1 · 요청</h2>
 <input id="q" type="text" value="이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해 줘">
 <div class="row">
@@ -141,17 +157,94 @@ table{width:100%;border-collapse:collapse}th,td{padding:5px 8px;border-bottom:1p
 <label><input type="radio" name="m" value="closed">closed</label></div>
 <div class="row"><button onclick="ask()"><b>실행</b></button><button onclick="burst()">20회 반복 (통계용)</button><button onclick="reset()">통계 초기화</button></div>
 <h2 style="margin-top:16px">최종 답변</h2><pre id="ans">-</pre></div>
-<div class="card"><h2>2 · LangSmith 로 전송되는 내용</h2>
+<div class="card"><h2>2 · LangSmith 전송 미리보기 (외부 전송 없음)</h2>
 <div class="sub">원본 입력</div><pre id="raw">-</pre>
 <div class="sub" style="margin-top:8px">전송 내용 (<span id="mode">-</span>)</div><pre id="sent">-</pre></div>
 <div class="card full"><h2>3 · 실행 흐름 (총괄 → 팀장 → 실무자 → 툴)</h2><div id="ev" class="sub">실행 버튼을 누르세요</div></div>
 <div class="card full"><h2>4 · 병목 통계 (누적) 와 튜닝 포인트</h2><div id="st" class="sub">아직 데이터 없음. "20회 반복"을 눌러 보세요</div></div>
 </main>
+<section id="diagnostics" hidden aria-label="C13 진단 데이터">
+<div class="card"><h2>컴파일 그래프 · C13 JSON</h2>
+<label for="scenario">시나리오</label><select id="scenario"><option>불러오는 중</option></select>
+<button id="run-simulation" disabled>시나리오 실행</button>
+<label class="file-control" for="trace-file">C13 JSON 불러오기 <input id="trace-file" type="file" accept=".json,application/json"></label>
+<p class="sub">Scripted 모델 + Fake 샌드박스 · 시나리오에 정의된 승인/거절을 재생합니다. 아래 이력은 조회용이며 결제를 승인하는 버튼이 아닙니다.</p>
+<div id="trace-status" role="status" aria-live="polite">데이터 없음. 시나리오를 실행하거나 --trace --json 출력을 불러오세요.</div>
+</div>
+<section id="panel-trace" class="card viewer" role="tabpanel" aria-labelledby="tab-trace" hidden>
+<h2>트레이스</h2><div id="trace-rows">표시할 트레이스가 없습니다.</div></section>
+<section id="panel-filters" class="card viewer" role="tabpanel" aria-labelledby="tab-filters" hidden>
+<h2>필터 결정</h2><div id="filter-rows">표시할 필터 결정이 없습니다.</div></section>
+<section id="panel-approvals" class="card viewer" role="tabpanel" aria-labelledby="tab-approvals" hidden>
+<h2>승인 이력</h2><div id="approval-rows">승인 요청이 없습니다.</div></section>
+</section>
 <script>
 const $=id=>document.getElementById(id);
 const setQ=t=>$('q').value=t;
 const mode=()=>document.querySelector('input[name=m]:checked').value;
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const tabs=[...document.querySelectorAll('[role=tab]')];
+function showTab(name){
+ for(const tab of tabs){const selected=tab.dataset.tab===name;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;}
+ $('legacy').hidden=name!=='legacy';$('diagnostics').hidden=name==='legacy';
+ for(const panel of ['trace','filters','approvals'])$('panel-'+panel).hidden=name!==panel;
+}
+for(const [index,tab] of tabs.entries()){
+ tab.addEventListener('click',()=>showTab(tab.dataset.tab));
+ tab.addEventListener('keydown',event=>{let next;
+  if(event.key==='ArrowRight')next=(index+1)%tabs.length;
+  else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;
+  else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;
+  event.preventDefault();tabs[next].focus();showTab(tabs[next].dataset.tab);
+ });
+}
+function tableInto(target,headers,rows,empty){
+ const box=$(target);box.replaceChildren();if(!rows.length){box.textContent=empty;return;}
+ const table=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
+ for(const label of headers){const th=document.createElement('th');th.scope='col';th.textContent=label;tr.appendChild(th);}
+ head.appendChild(tr);table.appendChild(head);const body=document.createElement('tbody');
+ for(const values of rows){const row=document.createElement('tr');for(const value of values){
+  const cell=document.createElement('td');if(typeof value==='object'&&value!==null){const pre=document.createElement('pre');pre.textContent=JSON.stringify(value,null,2);cell.appendChild(pre);}
+  else cell.textContent=value??'—';row.appendChild(cell);}
+  body.appendChild(row);}
+ table.appendChild(body);box.appendChild(table);
+}
+function displayExport(data){
+ const records=data.trace;
+ tableInto('trace-rows',['순서 / seq','종류 / kind','내용'],records.map(record=>[record.seq,record.kind,record]),'표시할 트레이스가 없습니다.');
+ tableInto('filter-rows',['순서','단계 / stage','필터','결정','이유','대상'],
+  records.filter(r=>r.kind==='filter').map(r=>[r.seq,r.stage,r.filter,r.action,r.reason,r.tool||r.agent]),'필터 결정이 없습니다.');
+ const history=[];
+ for(const record of records){if(record.kind==='approval_request')history.push({request:record,result:null});
+  else if(record.kind==='approval'){let entry=history.find(item=>!item.result&&item.request.tool===record.tool);
+   if(!entry){entry={request:{tool:record.tool,ask:'요청 기록 없음'},result:null};history.push(entry);}entry.result=record;}}
+ tableInto('approval-rows',['결과','툴','승인 요청','요청 seq','결과 seq'],
+  history.map(item=>[item.result?(item.result.approved?'승인':'거절'):'대기',item.request.tool,item.request.ask,item.request.seq,item.result?.seq]),'승인 요청이 없습니다.');
+ $('trace-status').textContent=`${data.scenario} · 진단 이벤트 ${records.length}개 · 마스킹된 로컬 데이터`;
+}
+async function diagnosticPost(path,data){
+ const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ if(!response.ok)throw new Error('진단 데이터를 불러오지 못했습니다. C13 --trace --json 형식인지 확인하세요.');
+ return response.json();
+}
+async function loadScenarios(){try{
+ const response=await fetch('/api/scenarios');if(!response.ok)throw new Error();const names=await response.json();$('scenario').replaceChildren();
+ for(const name of names){const option=document.createElement('option');option.value=name;option.textContent=name;$('scenario').appendChild(option);}
+ $('scenario').value='jeju_trip_payment';$('run-simulation').disabled=false;
+ }catch{$('trace-status').textContent='시나리오 목록을 불러오지 못했습니다. 서버 연결을 확인하세요.';}}
+$('run-simulation').addEventListener('click',async()=>{
+ $('run-simulation').disabled=true;$('trace-status').textContent='로컬 시나리오 실행 중…';
+ try{displayExport(await diagnosticPost('/api/simulation',{scenario:$('scenario').value}));}
+ catch(error){$('trace-status').textContent=error.message;}finally{$('run-simulation').disabled=false;}
+});
+$('trace-file').addEventListener('change',async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{if(file.size>2*1024*1024)throw new Error('JSON은 2MB 이하로 선택하세요.');
+  const data=JSON.parse(await file.text());displayExport(await diagnosticPost('/api/trace/import',data));}
+ catch{$('trace-status').textContent='가져오기 실패: 2MB 이하의 C13 --trace --json 파일을 선택하세요.';}
+ event.target.value='';
+});
+loadScenarios();
 async function call(){const r=await fetch('/api/ask',{method:'POST',body:JSON.stringify({question:$('q').value,mode:mode()})});return r.json()}
 async function ask(){const d=await call();
  $('ans').textContent=d.answer;$('raw').textContent=JSON.stringify(d.raw,null,1);
@@ -173,22 +266,52 @@ async function loadStats(){const d=await (await fetch('/api/stats')).json();if(!
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, body: bytes, ctype="application/json"):
-        self.send_response(200)
+    def _send(self, body: bytes, ctype="application/json", status=200):
+        self.send_response(status)
         self.send_header("Content-Type", ctype + "; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/api/stats":
+        if self.path == "/api/scenarios":
+            self._send(json.dumps(list_scenarios()).encode())
+        elif self.path == "/api/stats":
             self._send(json.dumps(stats(), ensure_ascii=False).encode())
         else:
             self._send(PAGE.encode(), "text/html")
 
     def do_POST(self):
-        n = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(n) or b"{}")
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            if n < 0 or n > 2 * 1024 * 1024:
+                raise ValueError
+            body = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError
+        except (ValueError, RecursionError):
+            self._send(b'{"error":"invalid_request"}', status=400)
+            return
+        if self.path == "/api/simulation":
+            scenario = body.get("scenario")
+            if not isinstance(scenario, str) or scenario not in list_scenarios():
+                self._send(b'{"error":"invalid_scenario"}', status=400)
+                return
+            try:
+                result = run_graph_scenario(scenario, sandbox="fake", security_mode="closed", trace=True)
+                out = export_simulation(result, trace=True)
+                self._send(json.dumps(out, ensure_ascii=False, default=str).encode())
+            except Exception:  # noqa: BLE001 - never return raw graph arguments or exception text
+                self._send(b'{"error":"simulation_failed"}', status=500)
+            return
+        if self.path == "/api/trace/import":
+            try:
+                out = load_trace_export(body)
+            except (ValueError, RecursionError):
+                self._send(b'{"error":"invalid_trace_export"}', status=400)
+                return
+            self._send(json.dumps(out, ensure_ascii=False).encode())
+            return
         if self.path == "/api/reset":
             HISTORY.clear()
             self._send(b"{}")

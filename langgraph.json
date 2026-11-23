@@ -1,4 +1,4 @@
 {
   "dependencies": ["."],
-  "graphs": {"orchestra": "./orchestra/service.py:studio_graph"}
+  "graphs": {"orchestra": "orchestra.service:studio_graph"}
 }

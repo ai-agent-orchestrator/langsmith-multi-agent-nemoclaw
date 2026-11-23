@@ -7,7 +7,8 @@
 위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
 LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(60 tests), 나머지는 Codex 인수인계 중입니다.
+> **현재 상태 (2026-11-23, 현재 작업 스택 기준)** — 코어·패키징·카탈로그·오프라인 LangSmith,
+> C13/C14 진단 화면·v1 백엔드·C16~C19 방어·C22 로컬 장부 영속화를 구현했습니다.
 > 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#nemoclaw-보완-예정) 참고).
 
 | 문서 | 내용 |
@@ -22,8 +23,8 @@ LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시�
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 60 passed
-python -I examples/simulate_hierarchical.py --list          # 시나리오 5개
+python -m pytest -q tests                                   # 오프라인 회귀 테스트
+python -I examples/simulate_hierarchical.py --list          # 사용 가능한 시나리오
 python -I examples/simulate_hierarchical.py                 # 제주 + 호텔 hold + 승인 결제
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
 python -I examples/simulate_hierarchical.py --scenario sandbox_egress_denied --mode graph
@@ -31,6 +32,23 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 ```
 
 ## 이번에 구현된 것
+
+```mermaid
+flowchart LR
+  R[요청] --> G["pre_request · 요청 게이트"]
+  G --> M["pre_model · 계약 / 출처 / taint"]
+  M --> T["pre_tool · 한도 / 정책"]
+  T --> C{COMMIT?}
+  C -->|예| A[행위에 묶인 1회 승인]
+  C -->|아니오| S[직접 실행 또는 Fake 샌드박스]
+  A --> S
+  S --> P["post_tool · 마스킹 / 출처 / taint"]
+  P --> O["pre_response · 마스킹"]
+  O --> V[마스킹된 트레이스 / playground]
+```
+
+BLOCK이면 해당 경로를 중단합니다. 위 샌드박스는 로컬 Fake 러너이며 실제 NemoClaw 실행은
+미검증입니다. 정규화·taint 규칙은 방어 심도이며 완전한 인젝션 해법이 아닙니다.
 
 ```
 orchestra/                    도메인을 모르는 코어
@@ -44,7 +62,7 @@ domains/                      교체 가능한 도메인 팩
   travel/                     툴 17개, 예약은 hold(임시 점유)까지만
   payment/                    intent → 사용자 승인 → capture → 예약 확정, 상태기계·멱등성·한도·hold 만료
 orgs/travel_payment.yaml      조직도 (총괄 1 + 팀장 4 + 실무자 10)
-scenarios/*.yaml              시뮬레이션·검증 공용 시나리오 5개
+scenarios/*.yaml              시뮬레이션·검증 공용 시나리오 6개
 nemoclaw/presets/*.yaml       ToolSpec 에서 생성된 egress 정책 (CI drift 검사)
 ```
 
@@ -109,6 +127,7 @@ PASS
 | `payment_over_limit` | 스위트 2,400,000원 → `amount_limit` 차단, 승인 요청조차 없음 → 대안 제시 |
 | `pii_bulk_blocked` | 게이트에서 차단, LLM 호출 0회 |
 | `sandbox_egress_denied` | 결제 호스트가 정책에서 빠짐 → 샌드박스가 egress 거부 → 결제 미실행, 운영자 승인 안내 |
+| `handoff_oversized` | 크기 상한을 초과한 위임 계약을 handoff 전에 차단 |
 
 ## 분담과 남은 작업
 
@@ -117,15 +136,30 @@ PASS
 | 영역 | 상태 |
 |---|---|
 | 스펙/조직도/팬아웃, 필터 체인·내장 필터, 툴 래퍼, HITL, ScriptedChatModel | ✅ 완료 |
-| 계층형 그래프·도구, 서비스, travel·payment 팩, 시뮬레이션·시나리오 5종 | ✅ 완료 |
+| 계층형 그래프·도구, 서비스, travel·payment 팩, 시뮬레이션·시나리오 6종 | ✅ 오프라인 검증 |
 | NemoClaw 정책 생성·검증·drift·fail-closed 함수, Fake 샌드박스 | ✅ 완료 (실제 NemoClaw 연동 ⬜) |
-| 패키징(pyproject), 기존 구조 shim·중복 제거 | ⬜ C1~C2 |
-| 플러그인 14개 벤더링·카탈로그·툴 매핑·`claude_dev` 팩 | ⬜ C3~C7 |
-| module-lib 어댑터 5종, hookify 규칙 필터, 시나리오 4종 추가·`concert_demo` | ⬜ C8~C10 |
-| **LangSmith 전 기능**(24개) + `showcase` CLI | ⬜ C11 |
-| **NemoClaw 실행 계층** (러너·워커·추론·감사·코드 샌드박스) | ⬜ C12 → 아래 |
+| 패키징·기존 shim·원본 불변 벤더링·frontmatter·14개 플러그인 카탈로그 | ✅ C1~C5 |
+| hookify 규칙 → 기존 필터 단계 | ✅ C9 |
+| LangSmith 24개 기능 지도 + 오프라인 showcase | ✅ C11 오프라인; hosted/API+UI 경로 미검증 |
+| CLI 조직/진입점/로컬 트레이스 옵션 | ✅ C13 |
+| Claude 툴 매핑·claude_dev·어댑터·추가 도메인 시나리오 | ⬜ C6~C8·C10; R4 + 툴 상한 정책 게이트 |
+| NemoClaw 워커·전송·추론·로그 파서·운영 초안 | ⬜ C12; R0 선행, N1/N3은 개발자 숙제 |
 | v1 백엔드(`langchain.agents.create_agent`), 시나리오 parity | ✅ C15 (스크립트 모델 검증) |
-| playground 탭 | ⬜ C14 |
+| 출처 라벨 계약·승인 바인딩·권한 축소·검사용 정규화/taint | ✅ C16~C19; 규칙 기반 방어 심도 |
+| 메모리 / 마스킹 HMAC SQLite 장부, 로컬 mock 원자성 | ✅ C22; 전체 워크플로 재시작 resume 미지원 |
+| playground 트레이스·필터 결정·승인 이력 탭, Studio 엔트리 선언 | ✅ C14; CLI 미설치로 langgraph dev 미검증 |
+| 스캐너 인입 게이트·서킷브레이커·코드 샌드박스 preset | ⬜ C20/C21/C23; 선행 조건 대기 |
+
+`python examples/playground.py` 실행 후 `http://127.0.0.1:8765`를 엽니다.
+첫 탭은 기존 레거시 데모입니다. 진단 탭 3개는 closed/Fake 스크립트 시나리오 실행 또는
+C13 `--trace --json` 파일(2MB 이하) 가져오기를 지원합니다. CLI와 화면은 `export_simulation`을
+공유합니다. 가져온 데이터는 검증·최소화·재마스킹 후 텍스트로 렌더링합니다. 승인 이력은
+시나리오의 결정을 재생할 뿐 실제 결제를 승인하지 않습니다. 설계서 §9.4의 더 넓은 범위인
+실시간 HITL 버튼·Org/Catalog 탭·hosted LangSmith 화면은 이번 C14에 구현하지 않았습니다.
+
+`langgraph.json`은 `orchestra.service:studio_graph`를 선언합니다. Python 모듈 로드와
+스크립트/Fake 그래프 빌드는 확인했습니다. 현재 환경에 `langgraph-cli`가 없어 실제
+`langgraph dev` 실행과 Studio 화면은 미검증입니다.
 
 ## NemoClaw 보완 예정
 
@@ -142,13 +176,13 @@ PASS
 | N6 | 코드 실행 샌드박스(`orchestra-code`), Landlock/프로세스 계층 정의, (선택) Deep Agents Code | ⬜ |
 | N7 | `Dockerfile.worker`, 운영 절차 문서 | ⬜ |
 
-**알려진 한계**: ① `binaries` 가 `python3*` 글롭이라 실행파일 단위가 아니라 **샌드박스 단위 격리**에 의존 → 결제 샌드박스엔 워커 외 코드를 두지 않음, ② `openshell policy set` 은 정책 전체를 교체하므로 운영 변경은 `policy-add` 로만, ③ 파일시스템·프로세스 계층은 **샌드박스 재생성**이 필요, ④ 승인·결제 장부는 현재 프로세스 메모리, ⑤ CLI·정책 스키마는 NemoClaw 버전마다 바뀔 수 있어 **설치된 버전에서 먼저 확인**(`[VERIFY]`).
+**알려진 한계**: ① `binaries` 가 `python3*` 글롭이라 실행파일 단위가 아니라 **샌드박스 단위 격리**에 의존 → 결제 샌드박스엔 워커 외 코드를 두지 않음, ② `openshell policy set` 은 정책 전체를 교체하므로 운영 변경은 `policy-add` 로만, ③ 파일시스템·프로세스 계층은 **샌드박스 재생성**이 필요, ④ 장부는 기본 메모리이며 C22 SQLite는 선택적 로컬 mock 영속화임(체크포인트·hold 미영속), ⑤ CLI·정책 스키마는 NemoClaw 버전마다 바뀔 수 있어 **설치된 버전에서 먼저 확인**(`[VERIFY]`).
 
 ## 향후 계획 — 보안 최상 지향 (NemoClaw 강화 + Claude Security 연동)
 
 멀티에이전트는 에이전트 간 handoff·툴 결과·플러그인·메모리마다 신뢰 경계가 생긴다. 그래서 "프롬프트를 잘 쓰자"가 아니라 **Zero-Trust Agent Mesh** 로 설계한다. 전문은 [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md).
 
-- **원칙**: LLM 은 정책 결정자가 아님(결정적 필터가 결정) · 에이전트 간 메시지는 데이터일 뿐 지시가 아님 · 권한은 위임 시 줄어들기만 함 · 승인은 `(tool, 인자 해시, 금액, 만료)` 에 서명으로 바인딩 · 실패는 닫는다 · 모든 차단·거부는 LangSmith 로 관측.
+- **원칙**: 결정적 필터가 정책을 결정하고, 에이전트 간 메시지는 라벨이 있는 데이터로 취급하며 권한은 위임 시 축소합니다. C17은 행위 바인딩, C22는 키 있는 HMAC 저장을 구현했습니다. 서명·해시 체인은 향후 O3 작업입니다. 차단·거부는 로컬 이벤트와 오프라인 검증한 LangSmith 어댑터로 기록하며 hosted 관측은 미검증입니다.
 - **NemoClaw 강화(NS1~NS9)**: 정책 드리프트 상시 점검, 위험도별 샌드박스 티어(read / payments / code), 샌드박스 내부 이중 필터, `inference.local` + 프라이버시 라우팅, egress 거부 → 자동 격리·리뷰, `policy-add` 만 허용하는 변경 승인, 시크릿 위생, 리소스 상한, 이미지 핀 고정·SBOM.
 - **Claude Security 연동(S1~S8)**: ① PR 마다 CI 스캔(High 이상 머지 차단·패치안 코멘트) ② 플러그인 14개 **인입 게이트**(SHA 핀 + 해시 + 스캔 통과분만 등록) ③ `security_lead` 팀(scan / policy / redteam 에이전트, **제안만 하고 적용은 사람 승인**) ④ 레드팀 회귀 스위트(인젝션·handoff 오염·금액 조작·PII 유출) ⑤ 해시 체인 감사 로그.
 - **현황**: 설계 단계. Claude Security·NemoClaw 의 실제 인터페이스는 확인 전(`[VERIFY]`)이라 코어는 **인터페이스 중립 어댑터**로 붙인다.
@@ -158,7 +192,7 @@ PASS
 # 부록 — 기존 골격 (supervisor / handoff / hybrid / hierarchical, LangSmith 연동)
 
 > 아래는 이 저장소의 출발점이던 설계 골격(`travel_planner/`)의 설명입니다. 코드는 그대로 남아 있으며(기존 테스트 14개 통과),
-> 신규 `orchestra/` 로의 하위 호환 shim 은 Codex 작업 C2 입니다. 신규 계층형 구현과 시뮬레이션은 위 섹션을 따르세요.
+> `orchestra/` 하위 호환 shim은 C2에서 구현했습니다. 아래는 레거시 골격 설명이며 현재 계층형 구현과 검증 상태는 위 섹션을 따르세요.
 
 ## 구조
 

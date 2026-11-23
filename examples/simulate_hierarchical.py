@@ -19,8 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orchestra.simulation import check_expect, list_scenarios, render, run_scenario  # noqa: E402
-from orchestra.simulation_trace import render_trace, trace_records  # noqa: E402
-from orchestra.observability.masking import mask_any, mask_text  # noqa: E402
+from orchestra.simulation_trace import render_trace, trace_records, export_simulation  # noqa: E402
+from orchestra.observability.masking import mask_text  # noqa: E402
 
 
 def main() -> int:
@@ -72,14 +72,7 @@ def main() -> int:
     if a.json_out:
         out = Path(a.json_out)
         out.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "scenario": a.scenario, "final": res.final, "interrupts": res.interrupts, "decisions": res.decisions,
-            "errors": errs,
-            "events": [{"seq": e.seq, "kind": e.kind, **e.data} for e in res.events.events],
-        }
-        if a.trace:
-            payload["trace"] = records
-            payload = mask_any(payload)
+        payload = export_simulation(res, trace=a.trace, scenario_label=a.scenario)
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         emit(f"saved: {out}")
     return 0 if not errs else 1
