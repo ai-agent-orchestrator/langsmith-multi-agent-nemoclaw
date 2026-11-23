@@ -1,0 +1,52 @@
+flowchart TB
+  subgraph BUILD["BUILD TIME · 코드가 들어오기 전"]
+    direction LR
+    SA["③ security-audit-skill<br/>findings.json → scanner.py<br/>intake.py · intake_gate.py"]
+    CS["② Claude Security<br/>지속 스캔 · fix tracking<br/>API · webhook · MCP"]
+    GATE{"pin 40-hex · sha256 일치<br/>High+ / 미검증 0건?"}
+    SA --> GATE
+    CS --> GATE
+  end
+  subgraph RUN["RUN TIME · handoff / tool call 순간"]
+    direction LR
+    A["Agent A<br/>(READ)"]
+    DS{"④ 결정층<br/>FilterChain → decision.py<br/>allow · ask · deny + reasonCode"}
+    B["Agent B<br/>(COMMIT · payments)"]
+    A -- "TaskBrief = data" --> DS
+    DS -- "allow · 권한 축소" --> B
+  end
+  subgraph INFRA["RUNTIME FLOOR · ① NemoClaw / OpenShell"]
+    direction LR
+    EG["deny-by-default egress<br/>egress_isolation.py"]
+    PA["policy add 만 · drift.py"]
+    CR["키는 host · inference.local"]
+  end
+  subgraph EVID["EVIDENCE"]
+    direction LR
+    LOG["audit.py<br/>해시 체인 + HMAC"]
+    LS["LangSmith<br/>security.reason_code"]
+  end
+  GATE -- "IntakeRegistry 등록" --> A
+  GATE -. "INTAKE_*" .-> STOP["등록 거부"]
+  DS -. "deny · 서비스 불가 = fail closed" .-> STOP2["차단 + 사람 리뷰"]
+  B --> EG
+  B --> PA
+  B --> CR
+  DS --> LOG
+  DS --> LS
+  classDef guard fill:#263c17,stroke:#91cc45,stroke-width:3px,color:#e6edf6
+  classDef architecture fill:#342a4c,stroke:#b39ae5,color:#e6edf6
+  classDef worker fill:#4b2b22,stroke:#d39a6a,stroke-width:3px,color:#e6edf6
+  classDef control fill:#42351e,stroke:#ddb965,color:#e6edf6
+  classDef result fill:#1a2837,stroke:#78d5ef,color:#e6edf6
+  classDef stop fill:#40282d,stroke:#c58b92,color:#e6edf6
+  class SA,CS architecture
+  class GATE,DS control
+  class A,B worker
+  class EG,CR,PA guard
+  class LOG,LS result
+  class STOP,STOP2 stop
+  style BUILD fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style RUN fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style INFRA fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style EVID fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb

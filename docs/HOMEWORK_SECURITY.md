@@ -1,6 +1,6 @@
 # 숙제: NemoClaw 보안 하네스 구현 (참고 저장소에서 쓸만한 것을 골라 개발)
 
-> **진행 현황 (2026-11-23)** — 직접 구현으로 전환. 학습: [`STUDY_NEMOCLAW_SECURITY.md`](STUDY_NEMOCLAW_SECURITY.md) · [`STUDY_LANGSMITH_EVAL.md`](STUDY_LANGSMITH_EVAL.md) · 개념 정리 [`CONCEPTS_AGENT_SECURITY.md`](CONCEPTS_AGENT_SECURITY.md).
+> **진행 현황 (2026-11-23)** — 직접 구현으로 전환. 4영역(NemoClaw · Claude Security · security-audit-skill · ai-security-architecture) 기준 통합 정리는 [`SECURITY_ROADMAP.md`](SECURITY_ROADMAP.md). 학습: [`STUDY_NEMOCLAW_SECURITY.md`](STUDY_NEMOCLAW_SECURITY.md) · [`STUDY_LANGSMITH_EVAL.md`](STUDY_LANGSMITH_EVAL.md) · 개념 정리 [`CONCEPTS_AGENT_SECURITY.md`](CONCEPTS_AGENT_SECURITY.md).
 >
 > | 과제 | 상태 | 위치 |
 > |---|---|---|
@@ -16,7 +16,8 @@
 > | C11 일부 (eval) | ✅ 데이터셋 변환·평가자 7종+요약·무네트워크 게이트(`python -m orchestra.observability.evals`) / ⚠️ SDK `evaluate` 업로드 경로는 API 키로 실행 못 해 미검증 | `orchestra/observability/` |
 > | 폭주 방어 | ✅ 재귀 한도 초과를 예외가 아닌 중단 결과(`recursion_limit`)로 닫음 + 회귀 테스트 | `orchestra/service.py`, `tests/test_redteam.py` |
 > | garak 계약 | ✅ 포크의 실제 `function` 제너레이터가 브리지를 호출해 거절/접수 응답 확인 / ⚠️ probe 전체 실행(torch 등 의존성)은 미실행 | |
-> | 남은 일 | ⬜ 실물 NemoClaw 점검(NEMOCLAW_REALITY §3) · garak probe 전체 실행 · 워커 전송(N2) · LangSmith 나머지 기능(트레이싱·feedback 업로드·pairwise·annotation 등) | |
+> | 4영역 결정층 (브랜치 21) | ✅ 결정 계약 allow/ask/deny + reasonCode · fail-closed 클라이언트 · egress 반복 거부 → 샌드박스 자동 격리 + 사람 해제 · 플러그인 인입 게이트(SHA pin + sha256 + 스캔) / ⚠️ 런타임·카탈로그 연결은 Codex 스택 병합 후 | `orchestra/security/{decision,egress_isolation,intake}.py`, `scripts/intake_gate.py`, `tests/test_security_decision_layer.py` |
+> | 남은 일 | ⬜ Codex 스택(06~20) 병합 후 🆕 모듈 연결([`SECURITY_ROADMAP.md`](SECURITY_ROADMAP.md) §9) · 실물 NemoClaw 점검(NEMOCLAW_REALITY §3) · garak probe 전체 실행 · 워커 전송(N2) · LangSmith 나머지 기능(트레이싱·feedback 업로드·pairwise·annotation 등) | |
 
 ## 0. 목표
 이 저장소의 계층형 멀티에이전트 코어 위에 **NemoClaw 실행 계층(N1~N3)** 과 **보안 하네스(S1~S8 중 선택)** 를 구현한다. 도메인(여행·결제)은 예제일 뿐이며, 보안 계층은 도메인과 무관하게 동작해야 한다.

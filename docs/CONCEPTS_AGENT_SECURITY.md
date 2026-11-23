@@ -37,7 +37,7 @@
 | **fail-closed** | 판단 불가면 차단 | 오류가 우회 경로가 되지 않게 | 필터 예외=BLOCK, 샌드박스 부재=중단, 드리프트=기동 실패 |
 | **이중 방어** | 서로 독립인 여러 겹 | 한 겹 버그가 전체 붕괴가 되지 않게 | 호스트 필터 + 샌드박스 정책 + 코드 가드 |
 | **불변식(invariant)** | 어떤 경로로도 깨지면 안 되는 규칙 | "테스트 통과"가 아니라 "속성 유지"를 검증 | `orchestra/security/invariants.py` 4종 |
-| **공급망** | 플러그인/스킬/MCP/의존성의 신뢰 | 악성 도구가 곧 권한 | SHA 고정·스캔 게이트(예정, `SECURITY_ROADMAP` S3), `THIRD_PARTY.md` |
+| **공급망** | 플러그인/스킬/MCP/의존성의 신뢰 | 악성 도구가 곧 권한 | SHA 고정·해시·스캔 인입 게이트(`security/intake.py`, `scripts/intake_gate.py`), `THIRD_PARTY.md` |
 | **감사 가능성** | 누가 무엇을 왜 승인했는지 사후 증명 | 사고 분석·부인 방지 | 해시 체인 로그(`security/audit.py`) |
 | **최소 정보** | 로그·트레이스에 원문 PII 남기지 않음 | 관측 도구가 유출 경로가 되지 않게 | `pii_mask`, 보안 모드 off/masked/closed, 감사 로그 해시화 |
 
