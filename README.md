@@ -7,7 +7,7 @@ A design-and-implementation repo for organizing specialist agents (weather, rest
 **NemoClaw/OpenShell sandboxes** that isolate risky actions (payments, code execution).
 Real compiled graphs run end to end from scenarios **without any LLM, network, or NemoClaw**.
 
-> **Status (2026-11-22)** — The core is implemented and tested (178 tests); the rest is handed off to Codex.
+> **Status (2026-11-22)** — The core is implemented and tested (193 tests); the rest is handed off to Codex.
 > Real LLMs, a real LangSmith server, and **real NemoClaw integration were not verified in the authoring environment**
 > (see [NemoClaw supplement plan](#nemoclaw-supplement-plan)).
 
@@ -26,7 +26,7 @@ Real compiled graphs run end to end from scenarios **without any LLM, network, o
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 178 passed
+python -m pytest -q tests                                   # 193 passed
 python -I examples/simulate_hierarchical.py --list          # 5 scenarios
 python -I examples/simulate_hierarchical.py                 # Jeju trip + hotel hold + approved payment
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected

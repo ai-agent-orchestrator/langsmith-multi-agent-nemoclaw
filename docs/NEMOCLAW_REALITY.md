@@ -48,3 +48,9 @@ nemoclaw <sb> policy get > /tmp/live.yaml              # nemoclaw_custom__ 키 �
 `docs/reference/commands.mdx`(policy get/add/list/remove, status, doctor) · `docs/network-policy/*` ·
 `docs/security/best-practices.mdx` · `schemas/policy-preset.schema.json`, `network-policy.schema.json` ·
 `src/lib/policy/index.ts`(`customPolicyKey`, `namespaceCustomPresetContent`).
+
+## 5. LangSmith SDK 실측 메모 (langsmith 0.16.0)
+- `evaluate(data=...)` 는 dict 가 아니라 `langsmith.schemas.Example` 객체를 요구한다 → `evals.to_sdk_examples`.
+- `upload_runs=False`(= `upload_results` 별칭), `tracing_context(enabled=False)`, 루프백 클라이언트를 모두 써도 내부 run 전송/재시도가 멈추지 않아 **5분 타임아웃**이 났다.
+  → 무네트워크 평가는 SDK 를 쓰지 않는 `run_local`, SDK 경로(`run_experiment`)는 **업로드 전용**(키 없으면 거부).
+- 의미: 보안 모드 `closed` 에서 `evaluate` 를 호출하면 트레이스가 밖으로 나가려 한다 → 호출 금지(문서·코드 주석에 명시).

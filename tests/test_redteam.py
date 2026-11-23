@@ -111,3 +111,16 @@ def test_commit_blocked_when_filters_disabled_still_satisfies_invariant():
 def test_egress_denied_scenario_has_no_leak():
     res = run_scenario("sandbox_egress_denied")
     assert evaluate_all(res)["no_egress_outside_policy"][0] == 1.0
+
+
+# ---------------------------------------------------------------- 폭주(무한 handoff)
+def test_runaway_handoff_loop_is_stopped_and_reported_not_raised():
+    sc = copy.deepcopy(load_scenario("jeju_trip_payment"))
+    sc["script"] = {"travel_director": [{"tool_calls": [{"name": "transfer_to_planning_lead"}], "content": "again"}] * 150,
+                    "planning_lead": [{"content": "nothing to do"}] * 150}
+    sc["expect"] = {}
+    res = run_scenario(sc)                                  # 예외 없이 돌아와야 한다
+    assert res.final["blocked"] and res.final["reason"] == "recursion_limit"
+    assert [e for e in res.events.of("blocked") if e.data.get("by") == "recursion_limit"]
+    assert len(res.events.of("llm")) < 60                   # 한도(46) 근처에서 멈춤 — 스크립트 150턴을 다 쓰지 않음
+    assert not captured(res) and violations(res) == []

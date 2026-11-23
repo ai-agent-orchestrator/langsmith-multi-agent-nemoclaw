@@ -54,12 +54,26 @@ class OrchestraService:
             self.app.runtime.events.add("blocked", stage="pre_request", reason=gate.reason, by=gate.blocked_by)
             return {"answer": f"차단: 보안 정책 위반 요청입니다 ({gate.reason})", "blocked": True,
                     "reason": gate.reason, "thread_id": thread_id, "interrupt": None}
-        with self.scope():
-            res = self.app.graph.invoke({"messages": [("user", question)]}, self._cfg(thread_id))
-        return self._finish(res, thread_id)
+        res = self._invoke({"messages": [("user", question)]}, thread_id)
+        return res if self._aborted(res) else self._finish(res, thread_id)
 
     def resume(self, thread_id: str, decision: bool | dict) -> dict:
         """interrupt 에 대한 사용자 응답으로 그래프를 재개한다."""
-        with self.scope():
-            res = self.app.graph.invoke(Command(resume=decision), self._cfg(thread_id))
-        return self._finish(res, thread_id)
+        res = self._invoke(Command(resume=decision), thread_id)
+        return res if self._aborted(res) else self._finish(res, thread_id)
+
+    # ------------------------------------------------------------ 폭주 방어: 재귀 한도는 예외가 아니라 '중단 결과'로 닫는다
+    def _invoke(self, payload: Any, thread_id: str) -> Any:
+        from langgraph.errors import GraphRecursionError
+        try:
+            with self.scope():
+                return self.app.graph.invoke(payload, self._cfg(thread_id))
+        except GraphRecursionError:
+            self.app.runtime.events.add("blocked", stage="runtime", reason="recursion_limit", by="recursion_limit")
+            return {"answer": "처리를 중단했습니다: 에이전트 간 호출이 한도를 넘었습니다(무한 루프 방지).",
+                    "blocked": True, "reason": "recursion_limit", "thread_id": thread_id, "interrupt": None,
+                    "_aborted": True}
+
+    @staticmethod
+    def _aborted(res: Any) -> bool:
+        return isinstance(res, dict) and res.get("_aborted") is True

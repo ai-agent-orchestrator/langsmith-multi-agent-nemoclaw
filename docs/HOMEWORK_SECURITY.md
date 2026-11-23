@@ -13,7 +13,10 @@
 > | O2 security_lead 팀 | ✅ 제안만, 적용은 COMMIT 승인 | `domains/security/`, `orgs/security_review.yaml`, `scenarios/security_*.yaml` |
 > | O3 감사 로그 | ✅ 해시 체인 + HMAC | `orchestra/security/audit.py` |
 > | O4 CI 게이트 | ✅ 워크플로 + `scripts/security_gate.py` | `.github/workflows/security.yml` |
-> | 남은 일 | ⬜ 실물 NemoClaw 점검(NEMOCLAW_REALITY §3) · garak 실행 · 워커 전송(N2) · LangSmith 평가자 래핑(C11) | |
+> | C11 일부 (eval) | ✅ 데이터셋 변환·평가자 7종+요약·무네트워크 게이트(`python -m orchestra.observability.evals`) / ⚠️ SDK `evaluate` 업로드 경로는 API 키로 실행 못 해 미검증 | `orchestra/observability/` |
+> | 폭주 방어 | ✅ 재귀 한도 초과를 예외가 아닌 중단 결과(`recursion_limit`)로 닫음 + 회귀 테스트 | `orchestra/service.py`, `tests/test_redteam.py` |
+> | garak 계약 | ✅ 포크의 실제 `function` 제너레이터가 브리지를 호출해 거절/접수 응답 확인 / ⚠️ probe 전체 실행(torch 등 의존성)은 미실행 | |
+> | 남은 일 | ⬜ 실물 NemoClaw 점검(NEMOCLAW_REALITY §3) · garak probe 전체 실행 · 워커 전송(N2) · LangSmith 나머지 기능(트레이싱·feedback 업로드·pairwise·annotation 등) | |
 
 ## 0. 목표
 이 저장소의 계층형 멀티에이전트 코어 위에 **NemoClaw 실행 계층(N1~N3)** 과 **보안 하네스(S1~S8 중 선택)** 를 구현한다. 도메인(여행·결제)은 예제일 뿐이며, 보안 계층은 도메인과 무관하게 동작해야 한다.

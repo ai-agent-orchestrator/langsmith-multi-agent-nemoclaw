@@ -7,7 +7,7 @@
 위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
 LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(178 tests), 나머지는 Codex 인수인계 중입니다.
+> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(193 tests), 나머지는 Codex 인수인계 중입니다.
 > 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#nemoclaw-보완-예정) 참고).
 
 | 문서 | 내용 |
@@ -25,7 +25,7 @@ LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시�
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 178 passed
+python -m pytest -q tests                                   # 193 passed
 python -I examples/simulate_hierarchical.py --list          # 시나리오 5개
 python -I examples/simulate_hierarchical.py                 # 제주 + 호텔 hold + 승인 결제
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
