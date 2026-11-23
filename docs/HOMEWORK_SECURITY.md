@@ -1,5 +1,16 @@
 # 숙제: NemoClaw 보안 하네스 구현 (참고 저장소에서 쓸만한 것을 골라 개발)
 
+> **진행 현황 (2026-11-23)** — 직접 구현으로 전환. 학습은 [`STUDY_NEMOCLAW_SECURITY.md`](STUDY_NEMOCLAW_SECURITY.md) · [`STUDY_LANGSMITH_EVAL.md`](STUDY_LANGSMITH_EVAL.md).
+>
+> | 과제 | 상태 | 위치 |
+> |---|---|---|
+> | R0 환경 점검(실제 NemoClaw) | ⬜ 내일 | `docs/NEMOCLAW_REALITY.md` 작성 필요 |
+> | R1 실제 러너 | ✅ 골격+계약 테스트 (CLI 문법·워커 전송은 R0/N2 후 확정) | `orchestra/sandbox/nemoclaw/runner.py` |
+> | R2 드리프트 점검 | ✅ | `orchestra/sandbox/nemoclaw/drift.py` |
+> | R3 스캐너 인터페이스 | ✅ (audit JSON 키 대조는 `[VERIFY]`) | `orchestra/security/scanner.py` |
+> | R4 레드팀 회귀 | ✅ 코드 방어선 + 불변식 4종 · ⬜ garak probe 연결 | `orchestra/security/invariants.py`, `tests/test_redteam.py`, `scenarios/redteam_*.yaml` |
+> | O1~O4 | ⬜ | |
+
 > PM이 방향·리뷰를 맡고, 개발자는 아래 참고 저장소에서 **쓸만한 것을 직접 골라** 이 저장소에 구현해 온다. 결과물은 PR 로 받아 merge 한다.
 > 먼저 읽을 것: `README.md` → `docs/DESIGN.md` → `docs/CODEX_HANDOFF.md` → `docs/NEMOCLAW_ROADMAP.md` → `docs/SECURITY_ROADMAP.md` → `AGENTS.md`.
 

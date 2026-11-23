@@ -7,7 +7,7 @@ A design-and-implementation repo for organizing specialist agents (weather, rest
 **NemoClaw/OpenShell sandboxes** that isolate risky actions (payments, code execution).
 Real compiled graphs run end to end from scenarios **without any LLM, network, or NemoClaw**.
 
-> **Status (2026-11-22)** — The core is implemented and tested (60 tests); the rest is handed off to Codex.
+> **Status (2026-11-22)** — The core is implemented and tested (99 tests); the rest is handed off to Codex.
 > Real LLMs, a real LangSmith server, and **real NemoClaw integration were not verified in the authoring environment**
 > (see [NemoClaw supplement plan](#nemoclaw-supplement-plan)).
 
@@ -17,13 +17,15 @@ Real compiled graphs run end to end from scenarios **without any LLM, network, o
 | [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **Handoff**: what is done / remaining tasks C1–C15 / design deviations / constraints |
 | [`docs/NEMOCLAW_ROADMAP.md`](docs/NEMOCLAW_ROADMAP.md) | NemoClaw plan N1–N7, limits, post-install checklist |
 | [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md) | **Multi-agent-era security design**, NemoClaw hardening, Claude Security integration |
+| [`docs/STUDY_NEMOCLAW_SECURITY.md`](docs/STUDY_NEMOCLAW_SECURITY.md) · [`docs/STUDY_LANGSMITH_EVAL.md`](docs/STUDY_LANGSMITH_EVAL.md) | Study guides: NemoClaw security and LangSmith eval, concepts first |
+| [`docs/HOMEWORK_SECURITY.md`](docs/HOMEWORK_SECURITY.md) | Security-harness task list (R0–R4, O1–O4) and progress |
 | [`AGENTS.md`](AGENTS.md) | Working rules and PR template for Codex |
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 60 passed
+python -m pytest -q tests                                   # 99 passed
 python -I examples/simulate_hierarchical.py --list          # 5 scenarios
 python -I examples/simulate_hierarchical.py                 # Jeju trip + hotel hold + approved payment
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected

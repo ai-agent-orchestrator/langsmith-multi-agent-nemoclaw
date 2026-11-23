@@ -7,7 +7,7 @@
 위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
 LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(60 tests), 나머지는 Codex 인수인계 중입니다.
+> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(99 tests), 나머지는 Codex 인수인계 중입니다.
 > 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#nemoclaw-보완-예정) 참고).
 
 | 문서 | 내용 |
@@ -16,13 +16,15 @@ LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시�
 | [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **인수인계**: 끝난 것 / 남은 일 C1~C15 / 설계 이탈 / 주의사항 |
 | [`docs/NEMOCLAW_ROADMAP.md`](docs/NEMOCLAW_ROADMAP.md) | NemoClaw 보완 계획 N1~N7, 한계, 설치 후 확인 체크리스트 |
 | [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md) | **멀티에이전트 시대 보안 설계**, NemoClaw 강화, Claude Security 연동 계획 |
+| [`docs/STUDY_NEMOCLAW_SECURITY.md`](docs/STUDY_NEMOCLAW_SECURITY.md) · [`docs/STUDY_LANGSMITH_EVAL.md`](docs/STUDY_LANGSMITH_EVAL.md) | 학습 가이드: NemoClaw 보안 · LangSmith eval (개념부터) |
+| [`docs/HOMEWORK_SECURITY.md`](docs/HOMEWORK_SECURITY.md) | 보안 하네스 과제(R0~R4, O1~O4)와 진행 현황 |
 | [`AGENTS.md`](AGENTS.md) | Codex 작업 규칙·PR 템플릿 |
 
 ## 빠른 실행
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 60 passed
+python -m pytest -q tests                                   # 99 passed
 python -I examples/simulate_hierarchical.py --list          # 시나리오 5개
 python -I examples/simulate_hierarchical.py                 # 제주 + 호텔 hold + 승인 결제
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
