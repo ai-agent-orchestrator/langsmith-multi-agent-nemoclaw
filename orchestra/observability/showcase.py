@@ -61,7 +61,7 @@ def trace_demo(mode: str, endpoint: str) -> dict:
     client = make_client(mode, api_url=endpoint, api_key="local-test", auto_batch_tracing=False)
     observer = Observation(org="travel_payment", domains=["travel", "payment"], mode=mode,
                            client=client, enabled=True, metadata={"scenario_id": "jeju_trip_payment",
-                                                                  "backend": "prebuilt", "sandbox": "fake"})
+                                                                  "sandbox": "fake"})
     headers = {}
     with tracing_scope(mode, client):
         with span("orchestra:travel_payment:hierarchical", client=client,

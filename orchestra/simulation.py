@@ -47,7 +47,7 @@ def list_scenarios() -> list[str]:
 
 
 def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[list[bool]] = None,
-                 security_mode: str = "closed", observation: Any = None) -> SimResult:
+                 security_mode: str = "closed", observation: Any = None, backend: Optional[str] = None) -> SimResult:
     sc = load_scenario(sc) if isinstance(sc, str) else sc
     ctx = sc.get("context", {})
     services: dict[str, Any] = {"today": ctx.get("today"), "now": 0.0}
@@ -56,7 +56,7 @@ def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[lis
     rt = Runtime(security_mode=security_mode, sandbox_mode=sandbox, events=events, services=services,
                  clock=services["clock"])
     factory = ScriptedModelFactory(sc.get("script", {}), events)
-    app = build_hierarchical_app(sc["org"], factory, services=services, runtime=rt)
+    app = build_hierarchical_app(sc["org"], factory, services=services, runtime=rt, backend=backend)
 
     runner = None
     if sandbox == "fake":

@@ -82,7 +82,7 @@ python scripts/gen_nemoclaw_presets.py --check             # preset drift 검사
 5. `thread_id` 는 전역 변수가 아니라 LangGraph config 에서 읽는다(동시 요청 안전). 새 코드도 `rt.thread_id` 를 쓰지 말 것.
 6. 프롬프트 `file:` 경로는 저장소 루트 기준.
 7. 실모델·실 LangSmith·실 NemoClaw 경로는 **이 환경에서 검증하지 못했다**(`ScriptedChatModel`/`FakeSandboxRunner` 로만 검증). 해당 코드는 `-m integration|langsmith|nemoclaw` 마커로 분리.
-8. DeprecationWarning 180개(create_react_agent)는 C15 에서 해소.
+8. C15 작업 브랜치 `13-v1-backend`에서 `AgentBackend`와 v1 구현 추가. `ORCHESTRA_AGENT_BACKEND=v1` 또는 빌더 `backend="v1"`로 선택하며 실무자·팀장 모두 create_agent 사용. 기존 prebuilt(기본) 및 레거시 비계층형 경로에는 경고가 남는다. 기본 5개 시나리오의 툴 순서·승인·최종 답변 parity와 비동기 handoff를 검증하며 실모델은 미검증.
 
 ## 5. PR 규칙
 AGENTS.md 의 PR 본문 템플릿을 쓴다. 작업 브랜치는 `04-…` 부터 이어서 번호를 붙인다(`03-orchestra-core` 가 이번 코어 구현).

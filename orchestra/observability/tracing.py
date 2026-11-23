@@ -134,6 +134,7 @@ class Observation:
         from ..service import OrchestraService
 
         self.metadata.setdefault("sandbox", app.runtime.sandbox_mode)
+        self.metadata.setdefault("backend", app.backend)
         self.metadata.setdefault("agent_source", {a.name: a.source for a in app.org.agents.values()})
         self.metadata.setdefault("git_sha", os.environ.get("ORCHESTRA_GIT_SHA", "unavailable"))
         if app.runtime.sandbox is not None and not isinstance(app.runtime.sandbox, TracedSandbox):

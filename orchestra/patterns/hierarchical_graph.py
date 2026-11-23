@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 from langchain_core.messages import ToolMessage
 from langgraph.graph import END
-from langgraph.prebuilt import create_react_agent
-from langgraph_supervisor import create_supervisor
+
+from ..backends import AgentBackend, get_backend
 
 from ..filters.chain import FilterChain, build_chain
 from ..filters.tool_wrapper import wrap_tool
@@ -33,9 +33,12 @@ class BuiltApp:
     org: OrgSpec
     chain: FilterChain
     resolved: Resolved
+    backend: str = "prebuilt"
 
     def config(self, thread_id: str = "default", **extra: Any) -> dict:
-        return {"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit(self.org), **extra}
+        return {"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit(self.org),
+                "metadata": {"orchestra_org": self.org.name, "security_mode": self.runtime.security_mode,
+                             "sandbox_mode": self.runtime.sandbox_mode, "backend": self.backend}, **extra}
 
     def invoke(self, payload: Any, config: Optional[dict] = None, **kw: Any) -> Any:
         return self.graph.invoke(payload, config or self.config(), **kw)
@@ -70,9 +73,12 @@ def build_hierarchical_app(
     runtime: Optional[Runtime] = None,
     checkpointer: Any = None,
     prompt_base: Optional[Path] = None,
+    backend: str | AgentBackend | None = None,
 ) -> BuiltApp:
     """조직도로부터 계층형 그래프를 만든다. checkpointer 는 최상위에만 붙는다(interrupt/resume 필수)."""
     from langgraph.checkpoint.memory import MemorySaver
+
+    agent_backend = get_backend(backend)
 
     if not isinstance(org, OrgSpec):
         org = load_org(org)
@@ -108,15 +114,13 @@ def build_hierarchical_app(
                  for t in a.tools]
         tools += [make_handoff(id_to_name[h], rt, source=a.name) for h in a.handoff_to]
         model = model_factory(role=a.name, alias=a.model, sensitivity=_sensitivity(a, res), kind="agent")
-        return create_react_agent(model, tools, name=a.name, prompt=prompt_text(a.prompt) or None)
+        return agent_backend.agent(a.model_copy(update={"prompt": prompt_text(a.prompt)}), model, tools, chain)
 
     def build_team(t: TeamSpec, is_root: bool) -> Any:
         members = [built[m] for m in t.members]
         model = model_factory(role=t.name, alias=t.model, sensitivity="public", kind="supervisor")
-        sup = create_supervisor(
-            cast(Any, members), model=model, prompt=prompt_text(t.prompt) or None, supervisor_name=t.name,
-            output_mode=t.output_mode, tools=[make_report(t.name, rt), make_escalate(t.name, rt)],
-        )
+        sup = agent_backend.supervisor(t.model_copy(update={"prompt": prompt_text(t.prompt)}), model, members, chain,
+                                       [make_report(t.name, rt), make_escalate(t.name, rt)])
         # langgraph_supervisor 는 모든 멤버에 고정 엣지 member→supervisor 를 건다. handoff 를 쓰는 멤버는
         # Command(goto=형제) 와 이 고정 엣지가 같은 step 에 둘 다 실행돼 팀장이 중간에 끼어든다.
         # → 고정 엣지를 조건부 엣지로 바꿔, 방금 handoff 했으면 팀장으로 돌아가지 않게 한다.
@@ -138,4 +142,4 @@ def build_hierarchical_app(
         return built[name]
 
     graph = build(org.root, is_root=True)
-    return BuiltApp(graph, rt, org, chain, res)
+    return BuiltApp(graph, rt, org, chain, res, backend=getattr(agent_backend, "name", type(agent_backend).__name__))

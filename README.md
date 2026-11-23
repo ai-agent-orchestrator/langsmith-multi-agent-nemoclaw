@@ -41,6 +41,22 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 
 ## What is implemented
 
+Agent construction supports `prebuilt` (the compatibility default) and `v1`.
+Install `pip install -e ".[agent-v1]"` and set `ORCHESTRA_AGENT_BACKEND=v1` to use
+`langchain.agents.create_agent` for both workers and team supervisors. The builder
+also accepts `backend="v1"` explicitly. Development installs include both backends
+so parity tests run rather than skip. Missing v1 dependencies produce a clear error.
+
+```powershell
+$env:ORCHESTRA_AGENT_BACKEND = 'v1'
+python -I examples/simulate_hierarchical.py --mode graph --sandbox fake --security-mode closed
+```
+
+Both backends share tool wrappers, approval ledgers, model filters and checkpoint
+handling. V1 supports synchronous/asynchronous team handoffs without deprecated
+agent factories. Compatibility `prebuilt` and legacy non-hierarchical builders
+still emit their existing deprecation warnings. Real provider models remain unverified.
+
 LangSmith observation is available under `orchestra.observability`; the original
 `travel_planner.observability` and `monitoring` imports remain compatibility shims.
 Run `python -m orchestra.observability.showcase all --offline` to generate a local
@@ -177,7 +193,8 @@ Full flow: `travel_director -> planning_lead -> (weather_agent -> restaurant_age
 | 5 module-lib adapters, hookify rule filter, 4 more scenarios, `concert_demo` | ⬜ C8–C10 |
 | **All 24 LangSmith features** + `showcase` CLI | ⬜ C11 |
 | **NemoClaw execution layer** (runner, worker, inference, audit, code sandbox) | ⬜ C12 -> below |
-| v1 backend (`langchain.agents.create_agent`), playground tab | ⬜ C14–C15 |
+| v1 backend (`langchain.agents.create_agent`), scenario parity | ✅ C15 (scripted models) |
+| playground tab | ⬜ C14 |
 
 ## NemoClaw supplement plan
 

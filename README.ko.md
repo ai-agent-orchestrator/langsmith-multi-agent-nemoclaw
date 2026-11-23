@@ -124,7 +124,8 @@ PASS
 | module-lib 어댑터 5종, hookify 규칙 필터, 시나리오 4종 추가·`concert_demo` | ⬜ C8~C10 |
 | **LangSmith 전 기능**(24개) + `showcase` CLI | ⬜ C11 |
 | **NemoClaw 실행 계층** (러너·워커·추론·감사·코드 샌드박스) | ⬜ C12 → 아래 |
-| v1 백엔드(`langchain.agents.create_agent`), playground 탭 | ⬜ C14~C15 |
+| v1 백엔드(`langchain.agents.create_agent`), 시나리오 parity | ✅ C15 (스크립트 모델 검증) |
+| playground 탭 | ⬜ C14 |
 
 ## NemoClaw 보완 예정
 
