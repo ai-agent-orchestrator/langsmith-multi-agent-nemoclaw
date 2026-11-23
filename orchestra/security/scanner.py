@@ -1,7 +1,8 @@
 """SecurityScanner 계약 + findings 스키마 (R3 / SECURITY_ROADMAP S1).
 
-판정 3단계(confirmed / needs_validation / rejected)는 security-audit-skill 의 출력 모델을 참고했다.
-`[VERIFY]` 실제 findings.json 필드명은 해당 저장소 report-schema.json 으로 대조해 `from_audit_json` 매핑을 확정할 것.
+판정 3단계(confirmed / needs_validation / rejected)와 `from_audit_json` 매핑은 security-audit-skill 의
+`skills/security-audit/report-schema.json` 으로 확정했다(R3): findings.json 은 **배열**, 식별자는 `fingerprint`,
+심각도는 **confirmed 에만** `severity.overall_severity`(informational~critical)로 붙고 needs_validation/rejected 에는 없다.
 어떤 제품(Claude Security, audit skill 등)이든 `SecurityScanner` 를 구현하면 코어가 그대로 쓴다.
 """
 from __future__ import annotations
@@ -35,7 +36,7 @@ class Verdict(str, Enum):
 class Finding(BaseModel):
     id: str
     title: str
-    severity: Severity
+    severity: Optional[Severity] = None    # confirmed 에만 존재 (needs_validation/rejected 는 심각도 없음)
     verdict: Verdict
     file: Optional[str] = None
     line: Optional[int] = None
@@ -44,9 +45,13 @@ class Finding(BaseModel):
     category: str = ""                     # 예: injection, authz, supply_chain, egress
 
     @model_validator(mode="after")
-    def _confirmed_needs_location(self) -> "Finding":
+    def _verdict_rules(self) -> "Finding":
         if self.verdict == Verdict.CONFIRMED and not self.file:
             raise ValueError(f"{self.id}: confirmed finding must name a file")
+        if self.verdict == Verdict.CONFIRMED and self.severity is None:
+            raise ValueError(f"{self.id}: confirmed finding must have a severity")
+        if self.verdict != Verdict.CONFIRMED and self.severity is not None:
+            raise ValueError(f"{self.id}: only confirmed findings carry a severity")
         return self
 
 
@@ -93,43 +98,63 @@ class FakeScanner:
 
 
 def gate(report: FindingsReport, *, fail_on: Severity = Severity.HIGH,
-         block_unvalidated_at: Optional[Severity] = Severity.CRITICAL) -> list[Finding]:
-    """머지/등록을 막아야 할 findings. confirmed 는 fail_on 이상, needs_validation 은 더 엄격한 기준에서만 막는다.
-    rejected 는 절대 막지 않는다(오탐으로 판정된 것)."""
-    blocking = []
+         block_on_needs_validation: bool = False) -> list[Finding]:
+    """머지/등록을 막아야 할 findings. confirmed 는 fail_on 이상. needs_validation 은 심각도가 없으므로
+    기본은 막지 않고(보고만), `block_on_needs_validation=True` 면 전부 막는다(공급망 인입 같은 엄격 모드). rejected 는 절대 안 막는다."""
+    out = []
     for f in report.findings:
-        if f.verdict == Verdict.CONFIRMED and f.severity.rank >= fail_on.rank:
-            blocking.append(f)
-        elif (f.verdict == Verdict.NEEDS_VALIDATION and block_unvalidated_at is not None
-              and f.severity.rank >= block_unvalidated_at.rank):
-            blocking.append(f)
-    return blocking
+        if f.verdict == Verdict.CONFIRMED and f.severity is not None and f.severity.rank >= fail_on.rank:
+            out.append(f)
+        elif f.verdict == Verdict.NEEDS_VALIDATION and block_on_needs_validation:
+            out.append(f)
+    return out
 
 
-def from_audit_json(data: dict[str, Any] | str | Path, *, scanner: str = "audit-skill",
-                    target: str = ".") -> FindingsReport:
-    """findings.json(dict/문자열/경로) → FindingsReport. 알 수 없는 verdict 는 needs_validation 으로 격하(fail-safe 쪽).
-    `[VERIFY]` 키 이름(`findings`, `verdict`, `severity`, `file`, `line`)을 실제 스키마와 대조."""
+_SEV = {"informational": Severity.INFO, "info": Severity.INFO, "low": Severity.LOW, "medium": Severity.MEDIUM,
+        "high": Severity.HIGH, "critical": Severity.CRITICAL}
+
+
+def _location(raw: dict) -> tuple[Optional[str], Optional[int]]:
+    """증거 → 싱크(trace 의 kind=sink) → 첫 trace 순으로 위치를 고른다."""
+    for item in list(raw.get("evidence") or []):
+        if item.get("file"):
+            return item["file"], item.get("line")
+    trace = list(raw.get("trace") or [])
+    for item in [i for i in trace if i.get("kind") == "sink"] + trace:
+        if item.get("file"):
+            return item["file"], item.get("line")
+    return None, None
+
+
+def from_audit_json(data: Any, *, scanner: str = "security-audit-skill", target: str = ".",
+                    coverage: Optional[list[str]] = None) -> FindingsReport:
+    """security-audit-skill 의 findings.json(배열; 문자열/경로/리스트 모두 허용) → FindingsReport.
+    알 수 없는 verdict 는 needs_validation 으로 격하하고, 위치가 없는 confirmed 도 격하한다(fail-safe)."""
     if isinstance(data, Path):
         data = json.loads(data.read_text(encoding="utf-8"))
     elif isinstance(data, str):
         data = json.loads(data)
-    items: Iterable[dict] = data.get("findings", []) if isinstance(data, dict) else data
-    out = []
+    items = data["findings"] if isinstance(data, dict) and "findings" in data else data
+    if not isinstance(items, list):
+        raise ValueError("findings.json must be an array")
+    out: list[Finding] = []
     for i, raw in enumerate(items):
         verdict = str(raw.get("verdict", "needs_validation")).lower()
         if verdict not in {v.value for v in Verdict}:
             verdict = Verdict.NEEDS_VALIDATION.value
-        sev = str(raw.get("severity", "medium")).lower()
-        if sev not in {s.value for s in Severity}:
-            sev = Severity.MEDIUM.value
-        file = raw.get("file") or raw.get("path")
-        if verdict == Verdict.CONFIRMED.value and not file:
-            verdict = Verdict.NEEDS_VALIDATION.value      # 위치 없는 confirmed 는 인정하지 않는다
-        out.append(Finding(id=str(raw.get("id", f"F{i+1:03d}")), title=str(raw.get("title", "")),
-                           severity=sev, verdict=verdict, file=file, line=raw.get("line"),
-                           description=str(raw.get("description", "")),
-                           remediation=str(raw.get("remediation", "")),
-                           category=str(raw.get("category", ""))))
-    return FindingsReport(scanner=scanner, target=target, findings=out,
-                          coverage=list(data.get("coverage", [])) if isinstance(data, dict) else [])
+        file, line = _location(raw)
+        sev: Optional[Severity] = None
+        if verdict == Verdict.CONFIRMED.value:
+            overall = ((raw.get("severity") or {}).get("overall_severity") or "").lower()
+            sev = _SEV.get(overall)
+            if not file or sev is None:                    # 위치/심각도 없는 confirmed 는 인정하지 않는다
+                verdict = Verdict.NEEDS_VALIDATION.value
+                sev = None
+        remediation = raw.get("remediation")
+        out.append(Finding(
+            id=str(raw.get("fingerprint") or raw.get("id") or f"F{i + 1:03d}"),
+            title=str(raw.get("title", "")), severity=sev, verdict=verdict, file=file, line=line,
+            description=str(raw.get("description", "")),
+            remediation=str(remediation.get("strategy", "")) if isinstance(remediation, dict) else str(remediation or ""),
+            category=str(raw.get("category", ""))))
+    return FindingsReport(scanner=scanner, target=target, findings=out, coverage=list(coverage or []))

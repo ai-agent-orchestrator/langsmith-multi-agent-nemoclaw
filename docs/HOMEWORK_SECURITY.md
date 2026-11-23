@@ -1,18 +1,19 @@
 # 숙제: NemoClaw 보안 하네스 구현 (참고 저장소에서 쓸만한 것을 골라 개발)
 
-> **진행 현황 (2026-11-23)** — 직접 구현으로 전환. 학습은 [`STUDY_NEMOCLAW_SECURITY.md`](STUDY_NEMOCLAW_SECURITY.md) · [`STUDY_LANGSMITH_EVAL.md`](STUDY_LANGSMITH_EVAL.md).
+> **진행 현황 (2026-11-23)** — 직접 구현으로 전환. 학습: [`STUDY_NEMOCLAW_SECURITY.md`](STUDY_NEMOCLAW_SECURITY.md) · [`STUDY_LANGSMITH_EVAL.md`](STUDY_LANGSMITH_EVAL.md) · 개념 정리 [`CONCEPTS_AGENT_SECURITY.md`](CONCEPTS_AGENT_SECURITY.md).
 >
 > | 과제 | 상태 | 위치 |
 > |---|---|---|
-> | R0 환경 점검(실제 NemoClaw) | ⬜ 내일 | `docs/NEMOCLAW_REALITY.md` 작성 필요 |
-> | R1 실제 러너 | ✅ 골격+계약 테스트 (CLI 문법·워커 전송은 R0/N2 후 확정) | `orchestra/sandbox/nemoclaw/runner.py` |
+> | R0 환경 점검 | ✅ 문서·스키마·소스 기준 실측 / ⚠️ 설치본 실출력 대조 남음 | [`NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md) |
+> | R1 실제 러너 | ✅ 실제 CLI 문법으로 보정 (워커 전송은 N2) | `orchestra/sandbox/nemoclaw/runner.py` |
 > | R2 드리프트 점검 | ✅ | `orchestra/sandbox/nemoclaw/drift.py` |
-> | R3 스캐너 인터페이스 | ✅ (audit JSON 키 대조는 `[VERIFY]`) | `orchestra/security/scanner.py` |
-> | R4 레드팀 회귀 | ✅ 코드 방어선 + 불변식 4종 · ⬜ garak probe 연결 | `orchestra/security/invariants.py`, `tests/test_redteam.py`, `scenarios/redteam_*.yaml` |
-> | O1~O4 | ⬜ | |
-
-> PM이 방향·리뷰를 맡고, 개발자는 아래 참고 저장소에서 **쓸만한 것을 직접 골라** 이 저장소에 구현해 온다. 결과물은 PR 로 받아 merge 한다.
-> 먼저 읽을 것: `README.md` → `docs/DESIGN.md` → `docs/CODEX_HANDOFF.md` → `docs/NEMOCLAW_ROADMAP.md` → `docs/SECURITY_ROADMAP.md` → `AGENTS.md`.
+> | R3 스캐너 인터페이스 | ✅ audit-skill 실제 스키마 반영 | `orchestra/security/scanner.py` |
+> | R4 레드팀 회귀 | ✅ 불변식 4종 + 공격 케이스 + garak 연결(명령·타깃·리포트 게이트) / ⚠️ garak 실제 실행은 미검증 | `orchestra/security/{invariants,garak_bridge}.py`, `tests/test_redteam.py` |
+> | O1 security-guidance 흡수 | ✅ 런타임 `code_guard` 필터 | `orchestra/filters/builtin/code_guard.py` |
+> | O2 security_lead 팀 | ✅ 제안만, 적용은 COMMIT 승인 | `domains/security/`, `orgs/security_review.yaml`, `scenarios/security_*.yaml` |
+> | O3 감사 로그 | ✅ 해시 체인 + HMAC | `orchestra/security/audit.py` |
+> | O4 CI 게이트 | ✅ 워크플로 + `scripts/security_gate.py` | `.github/workflows/security.yml` |
+> | 남은 일 | ⬜ 실물 NemoClaw 점검(NEMOCLAW_REALITY §3) · garak 실행 · 워커 전송(N2) · LangSmith 평가자 래핑(C11) | |
 
 ## 0. 목표
 이 저장소의 계층형 멀티에이전트 코어 위에 **NemoClaw 실행 계층(N1~N3)** 과 **보안 하네스(S1~S8 중 선택)** 를 구현한다. 도메인(여행·결제)은 예제일 뿐이며, 보안 계층은 도메인과 무관하게 동작해야 한다.

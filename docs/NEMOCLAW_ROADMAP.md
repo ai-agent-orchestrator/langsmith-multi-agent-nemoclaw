@@ -38,7 +38,7 @@
 ## 3. 단계별 계획 (Codex, 순서대로)
 
 ### N1. 실제 러너 — `orchestra/sandbox/nemoclaw/cli.py`, `runner.py`
-- 명령 템플릿을 **상수 테이블**로 두고 `shell=False`, 인자 검증, timeout, `dry_run` 지원. 허용 명령: `onboard`, `<name> connect`, `<name> policy-add <preset>`, `<name> policy-list`, `<name> status`, `<name> logs`, `openshell policy get --full`, `openshell policy set --policy <file> --wait`, `openshell term`(읽기 전용 안내만).
+- 명령 템플릿을 **상수 테이블**로 두고 `shell=False`, 인자 검증, timeout, `dry_run` 지원. 허용 명령: `onboard`, `<name> connect`, `<name> policy add <preset>`, `<name> policy-list`, `<name> status`, `<name> logs`, `openshell policy get --full`, `openshell policy set --policy <file> --wait`, `openshell term`(읽기 전용 안내만).
 - `doctor()`: 바이너리 존재, `--help` 로 서브커맨드 존재 확인, 샌드박스 존재, 적용 preset, 추론 경로를 표로 출력.
 - 테스트는 `dry_run` 명령 조립 + 가짜 바이너리(스크립트)로 stdout 파서 검증. 실제 바이너리 테스트는 `-m nemoclaw`.
 - **완료 조건**: 바이너리 없이 `pytest` 통과, 있으면 `-m nemoclaw` 로 `doctor` 성공.
@@ -71,13 +71,13 @@
 - 선택: LangChain **Deep Agents Code**(`nemo-deepagents` 변형, `dcode`)를 코드 에이전트 런타임으로 쓰고 OTLP 트레이싱을 LangSmith OTel 로 연결(`[VERIFY]`).
 
 ### N7. 운영 문서·이미지
-- `nemoclaw/README.md`: preset 생성 → NemoClaw 소스 트리 `nemoclaw-blueprint/policies/presets/` 복사(파일명 = `preset.name`) → onboard → `policy-add` → `doctor` → 모니터링.
+- `nemoclaw/README.md`: preset 생성 → NemoClaw 소스 트리 `nemoclaw-blueprint/policies/presets/` 복사(파일명 = `preset.name`) → onboard → `policy add` → `doctor` → 모니터링.
 - `nemoclaw/Dockerfile.worker`, `NEMOCLAW_DISABLE_TELEMETRY=1`, `NEMOCLAW_POLICY_TIER` 비대화형 설정.
 
 ## 4. 알려진 한계·위험 (보완 시 판단 필요)
 
 1. **`binaries` 가 `python3*` 글롭이다.** 샌드박스 안에서 "그 파이썬이면 어떤 코드든 해당 egress 를 쓸 수 있다"는 뜻이라, **실행파일 단위 격리가 아니라 샌드박스 단위 격리**에 의존한다. 그래서 결제 샌드박스에는 워커 외 코드를 두지 않는다. 가능하면 전용 워커 바이너리 경로 + 첫 사용 SHA256 검증으로 좁힌다.
-2. **`openshell policy set` 은 정책 전체를 교체한다**(preset 메타 블록도 못 받음). 운영 변경은 `nemoclaw <name> policy-add <preset>` 으로만 하고, 원시 교체는 `policy get --full` 스냅샷에서 시작한다.
+2. **`openshell policy set` 은 정책 전체를 교체한다**(preset 메타 블록도 못 받음). 운영 변경은 `nemoclaw <name> policy add <preset>` 으로만 하고, 원시 교체는 `policy get --full` 스냅샷에서 시작한다.
 3. **계층별 변경 가능 여부가 다르다.** 네트워크·추론은 실행 중 반영(hot-reload), **파일시스템·프로세스·게이트웨이 인증은 샌드박스 재생성** 필요 → 이미지/onboard 단계에서 확정해야 한다.
 4. **정책 리비전 추적**: `ExecResult.policy_revision` 을 트레이스에 남겨 "어느 정책 버전에서 거부됐는지" 재현 가능하게 한다.
 5. **프로세스 메모리 장부**: 승인·결제 장부가 메모리라 샌드박스 재시작/다중 프로세스에서 일관성이 없다 → 영속 저장소 필요(워커 도입 시 N2 에서 함께 결정).
@@ -87,7 +87,7 @@
 
 - [ ] `nemoclaw --help`, `openshell --help` 의 서브커맨드가 N1 허용 명령과 일치하는가
 - [ ] `openshell policy get --full <sandbox>` 의 스키마가 `policy.build_presets` 출력(`network_policies` → `endpoints`/`binaries`)과 일치하는가
-- [ ] preset 파일을 `policy-add` 했을 때 검증을 통과하는가 (`protocol: rest`, `enforcement: enforce`, `rules: - allow: {method, path}`)
+- [ ] preset 파일을 `policy add` 했을 때 검증을 통과하는가 (`protocol: rest`, `enforcement: enforce`, `rules: - allow: {method, path}`)
 - [ ] `binaries` 글롭(`python3*`)이 허용되는가, 아니면 정확한 경로가 필요한가
 - [ ] 샌드박스 안에서 `inference.local` 의 base URL·경로·스킴
 - [ ] 호스트→샌드박스로 워커를 호출하는 실제 방법(stdio / 포워딩)

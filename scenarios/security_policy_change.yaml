@@ -1,0 +1,37 @@
+id: security_policy_change
+title: '[보안팀] egress 1건 제안 → 운영자 승인 → 적용'
+org: orgs/security_review.yaml
+request: 결제 샌드박스에 환불 조회 경로를 허용해줘
+context:
+  today: '2026-11-23'
+approve:
+- true
+script:
+  security_lead:
+  - tool_calls:
+    - name: transfer_to_policy_agent
+    content: 정책 변경 건 → policy_agent
+  - content: 제안 prop_0001 을 승인받아 적용했습니다.
+  policy_agent:
+  - tool_calls:
+    - name: propose_policy_change
+      args:
+        sandbox: orchestra-payments
+        host: api.pay.test-provider.com
+        port: 443
+        method: GET
+        path: /v1/refunds/**
+        reason: 환불 조회 허용
+  - tool_calls:
+    - name: apply_policy_change
+      args:
+        proposal_id: prop_0001
+  - content: 처리 완료
+expect:
+  tools_in_order:
+  - propose_policy_change
+  - apply_policy_change
+  interrupts: 1
+  flags:
+    blocked: false
+  invariants: true

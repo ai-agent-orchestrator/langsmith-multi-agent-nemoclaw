@@ -1,0 +1,13 @@
+name: security_review
+domains: [security]
+root: security_lead
+teams:
+  security_lead:
+    prompt: "file:domains/security/prompts/security_lead.md"
+    members: [security/scan_agent, security/redteam_agent, security/policy_agent]
+    model: sonnet
+filters:
+  - {name: request_gate, stages: [pre_request], order: 10}
+  - {name: side_effect_policy, stages: [pre_tool], order: 50}
+  - {name: pii_mask, stages: [post_tool, pre_response], order: 90}
+  - {name: budget, stages: [pre_tool], order: 5, params: {max_tool_calls: 40}}

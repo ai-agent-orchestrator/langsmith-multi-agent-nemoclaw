@@ -9,12 +9,20 @@ from orchestra.simulation import run_scenario
 
 
 class FakeExec:
+    """table 키: "version" | "doctor" | "status" | "policy get" | "policy add" ... (argv 에서 추출한 동사)."""
     def __init__(self, table=None, default=None):
         self.table, self.default, self.calls = table or {}, default, []
 
+    @staticmethod
+    def verb(argv):
+        if argv[:2] == ["nemoclaw", "--version"]:
+            return "version"
+        rest = argv[2:]                                   # nemoclaw <sandbox> <verb> [<sub>]
+        return " ".join(rest[:2]) if rest[:1] == ["policy"] else (rest[0] if rest else "")
+
     def run(self, argv, *, timeout_s):
         self.calls.append((argv, timeout_s))
-        r = self.table.get(argv[1] if len(argv) > 1 else argv[0], self.default)
+        r = self.table.get(self.verb(argv), self.default)
         return r(argv) if callable(r) else (r or CommandResult(argv, 0, ""))
 
 
@@ -38,13 +46,37 @@ def test_rejects_unsafe_names_and_never_uses_shell():
 def test_dry_run_records_argv_only():
     ex = FakeExec()
     r = NemoClawRunner(ex, dry_run=True)
-    r.policy_add("orchestra-payments", "orchestra-payments-egress")
+    r.policy_add_file("orchestra-payments", "/tmp/orchestra-payments-egress.yaml")
     assert not ex.calls and r.history[0].dry_run
-    assert r.history[0].argv == ["nemoclaw", "orchestra-payments", "policy-add", "orchestra-payments-egress"]
+    assert r.history[0].argv == ["nemoclaw", "orchestra-payments", "policy", "add", "--from-file",
+                                 "/tmp/orchestra-payments-egress.yaml", "--yes"]          # 문서: 스크립트는 --yes 필수
+
+
+def test_rejects_unsafe_file_paths():
+    r = NemoClawRunner(FakeExec(), dry_run=True)
+    for bad in ["relative.yaml", "/tmp/../etc/x.yaml", "/tmp/x.txt", "/tmp/a b.yaml", "/tmp/$(id).yaml", ""]:
+        with pytest.raises(CommandError):
+            r.policy_add_file("orchestra-payments", bad)
+
+
+def test_sandbox_name_must_follow_nemoclaw_rules():
+    r = NemoClawRunner(FakeExec(), dry_run=True)
+    for bad in ["a" * 20, "a--b", "1abc", "Abc"]:
+        with pytest.raises(CommandError):
+            r.policy_get(bad)
+
+
+def test_dry_run_flag_uses_nemoclaw_dry_run():
+    r = NemoClawRunner(FakeExec(), dry_run=True)
+    r.policy_add_file("orchestra-payments", "/tmp/x.yaml", dry_run=True)
+    assert "--dry-run" in r.history[0].argv and "--yes" not in r.history[0].argv
 
 
 def test_no_whole_policy_replace_template():
-    assert not hasattr(NemoClawRunner(FakeExec()).t, "policy_set")
+    tpl = NemoClawRunner(FakeExec()).t
+    assert not hasattr(tpl, "policy_set")
+    flat = [" ".join(v) for v in vars(tpl).values()]
+    assert not any("policy set" in f for f in flat)
 
 
 def test_exec_fails_closed_without_transport_or_on_transport_error():
@@ -64,23 +96,49 @@ def test_doctor_reports_missing_cli():
     assert d["ok"] is False and "not found" in d["problem"]
 
 
-def test_parse_presets():
-    text = "network_policies:\n  x:\n    preset: orchestra-payments-egress\n  y:\n    preset: orchestra-langsmith\n"
+def test_doctor_uses_sandbox_doctor_exit_status_as_gate():
+    ok = NemoClawRunner(FakeExec(table={"version": CommandResult([], 0, "0.9.1\n"),
+                                        "doctor": CommandResult([], 0, '{"checks": []}')}))
+    d = ok.doctor("orchestra-payments")
+    assert d["ok"] and d["version"] == "0.9.1" and d["report"] == {"checks": []}
+    bad = NemoClawRunner(FakeExec(table={"version": CommandResult([], 0, "0.9.1"),
+                                         "doctor": CommandResult([], 1, "{}", "inference route failed")}))
+    d = bad.doctor("orchestra-payments")
+    assert d["ok"] is False and "inference" in d["problem"]
+
+
+def test_status_parses_json():
+    r = NemoClawRunner(FakeExec(table={"status": CommandResult([], 0, '{"phase": "Running"}')}))
+    s = r.status("orchestra-payments")
+    assert s["ok"] and s["report"]["phase"] == "Running"
+
+
+def test_parse_presets_decodes_namespaced_custom_keys():
+    text = ("network_policies:\n"
+            "  nemoclaw_custom__orchestra-payments-egress__orchestra_payments_api_443: {}\n"
+            "  nemoclaw_custom__orchestra-payments-egress__second_key: {}\n"
+            "  nemoclaw_custom__orchestra-langsmith__orchestra_langsmith: {}\n"
+            "  baseline_pypi: {}\n")
     assert parse_presets_from_policy(text) == ["orchestra-langsmith", "orchestra-payments-egress"]
+
+
+@pytest.mark.parametrize("text", ["", "not: [valid", "network_policies: 3", "- a\n- b", "network_policies:\n  nemoclaw_custom__: {}"])
+def test_parse_presets_garbage_yields_empty(text):
+    assert parse_presets_from_policy(text) == []
 
 
 # ------------------------------------------------------------------ drift (R2)
 def runner_with(applied: dict[str, str]):
     def run(argv):
-        sb = argv[-1]
+        sb = argv[1]
         if sb not in applied:
             return CommandResult(argv, 1, stderr="no such sandbox")
         return CommandResult(argv, 0, applied[sb])
-    return NemoClawRunner(FakeExec(table={"policy": run}))
+    return NemoClawRunner(FakeExec(table={"policy get": run}))
 
 
 def policy_text(*names):
-    return "".join(f"  p{i}:\n    preset: {n}\n" for i, n in enumerate(names))
+    return "network_policies:\n" + "".join(f"  nemoclaw_custom__{n}__k{i}: {{}}\n" for i, n in enumerate(names))
 
 
 def test_startup_ok_when_applied_matches():

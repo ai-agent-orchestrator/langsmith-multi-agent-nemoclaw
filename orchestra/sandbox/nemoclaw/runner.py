@@ -1,4 +1,4 @@
-"""NemoClawRunner (R1 / N1). CLI 래퍼 + 안전장치. 실제 CLI 문법은 `[VERIFY]` (R0 에서 확정).
+"""NemoClawRunner (R1 / N1). CLI 래퍼 + 안전장치. CLI 문법은 NemoClaw 포크 docs/reference/commands.mdx 로 확정(R0).
 
 설계:
   * 명령은 allowlist(템플릿)로만 실행한다. 임의 문자열 실행 금지, 인자는 검증 후 argv 리스트로 전달(shell=False).
@@ -14,11 +14,15 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
 from ..base import ExecRequest, ExecResult
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+from ...specs import SANDBOX_NAME_RE            # noqa: E402  (1~19자, 소문자 시작, 단일 하이픈)
+
+_PRESET_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
+_CUSTOM_KEY_PREFIX = "nemoclaw_custom__"      # src/lib/policy/index.ts: customPolicyKey()
 MAX_OUTPUT_BYTES = 256 * 1024
 
 
@@ -28,12 +32,20 @@ class CommandError(RuntimeError):
 
 @dataclass
 class CommandTemplates:
-    """`[VERIFY]` 실제 CLI 에 맞게 R0 에서 확정. 값은 argv 템플릿({sandbox},{preset},{file} 치환)."""
-    policy_get: list[str] = field(default_factory=lambda: ["openshell", "policy", "get", "--full", "{sandbox}"])
-    policy_add: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "policy-add", "{preset}"])
-    status: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "status"])
+    """docs/reference/commands.mdx 기준 (R0 실측). `{sandbox}`·`{preset}`·`{file}` 만 치환한다.
+    policy add 는 `--yes` 필수(비대화). 변경 명령은 항상 `policy add`(상위 문서를 병합해 전체 문서를 제출·검증)이며,
+    OpenShell 의 `policy set`(전체 교체) 템플릿은 의도적으로 두지 않는다."""
     version: list[str] = field(default_factory=lambda: ["nemoclaw", "--version"])
-    # 의도적으로 policy set(전체 교체) 템플릿은 두지 않는다 — 운영 변경은 policy-add 만.
+    doctor: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "doctor", "--json"])
+    status: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "status", "--json"])
+    policy_get: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "policy", "get"])
+    policy_list: list[str] = field(default_factory=lambda: ["nemoclaw", "{sandbox}", "policy", "list"])
+    policy_add_file: list[str] = field(default_factory=lambda: [
+        "nemoclaw", "{sandbox}", "policy", "add", "--from-file", "{file}", "--yes"])
+    policy_add_dry_run: list[str] = field(default_factory=lambda: [
+        "nemoclaw", "{sandbox}", "policy", "add", "--from-file", "{file}", "--dry-run"])
+    policy_remove: list[str] = field(default_factory=lambda: [
+        "nemoclaw", "{sandbox}", "policy", "remove", "{preset}", "--yes"])
 
 
 @dataclass
@@ -79,7 +91,14 @@ class NemoClawRunner:
     # ------------------------------------------------------------ 안전한 명령 실행
     @staticmethod
     def _check(name: str, value: str) -> str:
-        if not isinstance(value, str) or not _NAME_RE.match(value):
+        rx = {"sandbox": SANDBOX_NAME_RE, "preset": _PRESET_RE}.get(name)
+        if name == "file":
+            p = Path(value) if isinstance(value, str) else None
+            if p is None or not p.is_absolute() or ".." in p.parts or p.suffix not in (".yaml", ".yml") \
+                    or not re.match(r"^[A-Za-z0-9_./-]+$", value):
+                raise CommandError(f"invalid file: {value!r} (absolute .yaml path without '..' required)")
+            return value
+        if rx is None or not isinstance(value, str) or not rx.match(value):
             raise CommandError(f"invalid {name}: {value!r}")
         return value
 
@@ -98,12 +117,24 @@ class NemoClawRunner:
         return res
 
     # ------------------------------------------------------------ 조회/변경
-    def doctor(self) -> dict[str, Any]:
-        """설치·버전·접근성 점검. 실패 항목을 이유와 함께 반환(예외 아님)."""
+    def version(self) -> Optional[str]:
+        r = self._run(self.t.version)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    def doctor(self, sandbox: Optional[str] = None) -> dict[str, Any]:
+        """설치·버전(+샌드박스 지정 시 `doctor --json` 판정). 실패는 예외가 아니라 이유와 함께 반환."""
         v = self._run(self.t.version)
-        ok = v.returncode == 0
-        return {"ok": ok, "version": v.stdout.strip() if ok else None,
-                "problem": None if ok else (v.stderr.strip() or f"exit {v.returncode}"), "dry_run": self.dry_run}
+        out: dict[str, Any] = {"ok": v.returncode == 0, "version": v.stdout.strip() or None if v.returncode == 0 else None,
+                               "problem": None if v.returncode == 0 else (v.stderr.strip() or f"exit {v.returncode}"),
+                               "dry_run": self.dry_run}
+        if sandbox and out["ok"]:
+            d = self._run(self.t.doctor, sandbox=sandbox)
+            out["sandbox"] = sandbox
+            out["ok"] = d.returncode == 0              # 문서: 실패한 점검은 비0 종료 → 준비 게이트로 사용 가능
+            out["report"] = _parse_json(d.stdout)
+            if d.returncode != 0:
+                out["problem"] = d.stderr.strip() or f"doctor exit {d.returncode}"
+        return out
 
     def policy_get(self, sandbox: str) -> str:
         r = self._run(self.t.policy_get, sandbox=sandbox)
@@ -112,20 +143,27 @@ class NemoClawRunner:
         return r.stdout
 
     def applied_presets(self, sandbox: str) -> list[str]:
-        """drift 점검용 fetch_applied 로 그대로 사용."""
+        """drift 점검용 fetch_applied 로 그대로 사용. 사용자 정의 preset 은 live 정책의 `nemoclaw_custom__<preset>__<key>` 로 복원."""
         return self.parse_presets(self.policy_get(sandbox))
 
-    def policy_add(self, sandbox: str, preset: str) -> CommandResult:
-        r = self._run(self.t.policy_add, sandbox=sandbox, preset=preset)
+    def policy_add_file(self, sandbox: str, file: str, *, dry_run: bool = False) -> CommandResult:
+        tpl = self.t.policy_add_dry_run if dry_run else self.t.policy_add_file
+        r = self._run(tpl, sandbox=sandbox, file=file)
         if r.returncode != 0:
-            raise CommandError(f"policy-add {preset} failed on {sandbox}: {r.stderr.strip() or r.returncode}")
+            raise CommandError(f"policy add {file} failed on {sandbox}: {r.stderr.strip() or r.returncode}")
+        return r
+
+    def policy_remove(self, sandbox: str, preset: str) -> CommandResult:
+        r = self._run(self.t.policy_remove, sandbox=sandbox, preset=preset)
+        if r.returncode != 0:
+            raise CommandError(f"policy remove {preset} failed on {sandbox}: {r.stderr.strip() or r.returncode}")
         return r
 
     # ------------------------------------------------------------ SandboxRunner 계약
     def status(self, sandbox: str) -> dict[str, Any]:
         r = self._run(self.t.status, sandbox=sandbox)
         return {"sandbox": sandbox, "runner": "nemoclaw", "ok": r.returncode == 0,
-                "raw": r.stdout.strip(), "error": r.stderr.strip() or None, "dry_run": r.dry_run}
+                "report": _parse_json(r.stdout), "error": r.stderr.strip() or None, "dry_run": r.dry_run}
 
     def exec(self, req: ExecRequest) -> ExecResult:
         if self.transport is None:                    # 워커 전송(N2) 미구현/미설정 → 닫는다
@@ -140,7 +178,32 @@ class NemoClawRunner:
         return res
 
 
+def _parse_json(text: str) -> Any:
+    import json
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
 def parse_presets_from_policy(text: str) -> list[str]:
-    """`policy get --full` 출력에서 적용 preset 이름을 뽑는다. `[VERIFY]` 실제 출력 형식 확정 전 임시 규칙:
-    `preset: <name>` 줄(YAML) 을 모두 수집한다."""
-    return sorted(set(re.findall(r"(?m)^\s*preset:\s*([A-Za-z0-9_.-]+)\s*$", text)))
+    """`nemoclaw <sb> policy get` 출력(YAML)에서 적용된 사용자 정의 preset 이름을 복원한다.
+    NemoClaw 는 `--from-file` 로 적용한 preset 의 정책 키를 `nemoclaw_custom__<preset>__<원래키>` 로 바꿔 live 정책에 넣는다
+    (NemoClaw src/lib/policy/index.ts). 파싱 불가/비정상 문서는 빈 목록 → drift 점검이 'missing' 으로 기동을 막는다(fail-closed).
+    `[VERIFY]` 설치 버전에서 `policy get` 실출력으로 한 번 대조."""
+    import yaml
+    try:
+        doc = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return []
+    pols = doc.get("network_policies") if isinstance(doc, dict) else None
+    if not isinstance(pols, dict):
+        return []
+    names = set()
+    for key in pols:
+        if isinstance(key, str) and key.startswith(_CUSTOM_KEY_PREFIX):
+            rest = key[len(_CUSTOM_KEY_PREFIX):]
+            sep = rest.find("__")
+            if sep > 0:
+                names.add(rest[:sep])
+    return sorted(names)

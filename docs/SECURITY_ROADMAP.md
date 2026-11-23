@@ -41,7 +41,7 @@
 | NS3 | **이중 필터**: 샌드박스 워커가 호스트와 독립적으로 `pre_tool`/`post_tool` 재검사, 호스트 필터 우회 시도 탐지 | N2 |
 | NS4 | **추론 경유 `inference.local`** + 프라이버시 라우터(PII/PCI → 로컬 모델), 자격증명은 호스트에만 | N4 |
 | NS5 | **egress 거부 이벤트 → 자동 대응**: 반복 거부 시 해당 에이전트 격리(kill switch), annotation queue 로 운영자 리뷰 | N5 |
-| NS6 | **네트워크 정책 변경 승인 절차**: `policy-add` 만 허용, 변경은 사람 승인 + 감사 기록, 전체 교체(`policy set`) 금지 | 한계 ② |
+| NS6 | **네트워크 정책 변경 승인 절차**: `policy add` 만 허용, 변경은 사람 승인 + 감사 기록, 전체 교체(`policy set`) 금지 | 한계 ② |
 | NS7 | **시크릿 위생**: 샌드박스에 장기 키 금지, 단기 토큰·호스트 프록시, 로그 마스킹 | |
 | NS8 | **리소스 상한**: 샌드박스별 CPU/메모리/시간/출력 크기, 서킷브레이커 | |
 | NS9 | **재현 가능한 이미지**: `Dockerfile.worker` 핀 고정, SBOM, 이미지 서명 | N7 |
@@ -69,7 +69,7 @@ Claude Security 는 코드베이스의 취약점을 찾고 패치를 제안하�
 | S2 | **CI 스캔**: PR 마다 변경분 스캔, High 이상은 머지 차단, 패치안은 PR 코멘트로 | 워크플로 파일 + 샘플 finding 으로 동작 확인 |
 | S3 | **플러그인 인입 게이트(C3 연계)**: 벤더링한 14개 플러그인·스킬·MCP 정의를 핀 고정(커밋 SHA)+해시 기록 후 스캔, 통과분만 카탈로그에 등록 | 스캔 미통과 플러그인은 `ToolSpec` 으로 노출 불가 |
 | S4 | **security_lead 팀** 추가: `scan_agent`(코드/플러그인 점검), `policy_agent`(egress·필터 변경 제안), `redteam_agent`(인젝션·권한상승 시나리오 생성). 모두 **제안만** 하고 적용은 사람 승인(COMMIT 등급) | 시나리오로 흐름 재현, 정책 변경은 승인 없이 불가 |
-| S5 | **정책 변경 루프**: finding → 필터/preset 수정안 → `gen_nemoclaw_presets.py --check` → 사람 승인 → `policy-add` | drift 검사 통과 전 적용 불가 |
+| S5 | **정책 변경 루프**: finding → 필터/preset 수정안 → `gen_nemoclaw_presets.py --check` → 사람 승인 → `policy add` | drift 검사 통과 전 적용 불가 |
 | S6 | **LangSmith 연결**: finding·BLOCK·egress 거부를 피드백/annotation queue 로, 회귀 데이터셋에 레드팀 케이스 누적 | 데이터셋 평가에서 인젝션 케이스 차단율 리포트 |
 | S7 | **레드팀 회귀 스위트**: 간접 인젝션, handoff 오염, 도구 결과 위장, 금액 조작, PII 유출, 무한 handoff | 모두 BLOCK/승인요구로 끝나야 CI 통과 |
 | S8 | **감사 로그**: 해시 체인 + 승인 서명, 변조 탐지 | 로그 한 줄 수정 시 검증 실패 |

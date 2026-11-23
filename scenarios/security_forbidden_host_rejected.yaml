@@ -1,0 +1,35 @@
+id: security_forbidden_host_rejected
+title: '[보안팀] 추론 제공자 호스트 허용 제안 → rejected, 운영자가 적용 승인을 거절 → 미적용'
+org: orgs/security_review.yaml
+request: 결제 샌드박스에서 api.openai.com 을 열어줘
+context:
+  today: '2026-11-23'
+approve: []
+script:
+  security_lead:
+  - tool_calls:
+    - name: transfer_to_policy_agent
+    content: 정책 변경 건 → policy_agent
+  - content: 금지된 호스트라 제안이 거절되었습니다.
+  policy_agent:
+  - tool_calls:
+    - name: propose_policy_change
+      args:
+        sandbox: orchestra-payments
+        host: api.openai.com
+        port: 443
+        method: GET
+        path: /v1/chat/completions
+        reason: 환불 조회 허용
+  - tool_calls:
+    - name: apply_policy_change
+      args:
+        proposal_id: prop_0001
+  - content: 처리 완료
+expect:
+  tools_in_order:
+  - propose_policy_change
+  interrupts: 1
+  flags:
+    blocked: false
+  invariants: true

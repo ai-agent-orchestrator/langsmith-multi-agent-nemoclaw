@@ -7,7 +7,7 @@ A design-and-implementation repo for organizing specialist agents (weather, rest
 **NemoClaw/OpenShell sandboxes** that isolate risky actions (payments, code execution).
 Real compiled graphs run end to end from scenarios **without any LLM, network, or NemoClaw**.
 
-> **Status (2026-11-22)** — The core is implemented and tested (99 tests); the rest is handed off to Codex.
+> **Status (2026-11-22)** — The core is implemented and tested (178 tests); the rest is handed off to Codex.
 > Real LLMs, a real LangSmith server, and **real NemoClaw integration were not verified in the authoring environment**
 > (see [NemoClaw supplement plan](#nemoclaw-supplement-plan)).
 
@@ -19,13 +19,14 @@ Real compiled graphs run end to end from scenarios **without any LLM, network, o
 | [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md) | **Multi-agent-era security design**, NemoClaw hardening, Claude Security integration |
 | [`docs/STUDY_NEMOCLAW_SECURITY.md`](docs/STUDY_NEMOCLAW_SECURITY.md) · [`docs/STUDY_LANGSMITH_EVAL.md`](docs/STUDY_LANGSMITH_EVAL.md) | Study guides: NemoClaw security and LangSmith eval, concepts first |
 | [`docs/HOMEWORK_SECURITY.md`](docs/HOMEWORK_SECURITY.md) | Security-harness task list (R0–R4, O1–O4) and progress |
+| [`docs/CONCEPTS_AGENT_SECURITY.md`](docs/CONCEPTS_AGENT_SECURITY.md) · [`docs/NEMOCLAW_REALITY.md`](docs/NEMOCLAW_REALITY.md) | Security concept map (multi-agent × NemoClaw) · NemoClaw facts verified from docs/schemas |
 | [`AGENTS.md`](AGENTS.md) | Working rules and PR template for Codex |
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 99 passed
+python -m pytest -q tests                                   # 178 passed
 python -I examples/simulate_hierarchical.py --list          # 5 scenarios
 python -I examples/simulate_hierarchical.py                 # Jeju trip + hotel hold + approved payment
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
@@ -142,14 +143,14 @@ Today the repo covers **generating and validating policy from declarations**; th
 | N6 | Code-execution sandbox (`orchestra-code`), Landlock/process layers, optional Deep Agents Code | ⬜ |
 | N7 | `Dockerfile.worker`, operations runbook | ⬜ |
 
-**Known limits**: (1) `binaries` is a `python3*` glob, so isolation is per **sandbox**, not per executable — keep only the worker in the payment sandbox; (2) `openshell policy set` replaces the whole policy, so use `policy-add` in operations; (3) filesystem/process layers require **recreating** the sandbox; (4) approval/payment ledgers are in-process memory; (5) CLI and policy schemas vary by NemoClaw version — **verify on the installed version first** (`[VERIFY]`).
+**Known limits**: (1) `binaries` is a `python3*` glob, so isolation is per **sandbox**, not per executable — keep only the worker in the payment sandbox; (2) `openshell policy set` replaces the whole policy, so use `policy add` in operations; (3) filesystem/process layers require **recreating** the sandbox; (4) approval/payment ledgers are in-process memory; (5) CLI and policy schemas vary by NemoClaw version — **verify on the installed version first** (`[VERIFY]`).
 
 ## Roadmap — aiming for top-tier security (NemoClaw hardening + Claude Security)
 
 Every handoff, tool result, plugin, and memory in a multi-agent system is a trust boundary. So the design is **not "write better prompts" but a Zero-Trust Agent Mesh**. Details: [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md).
 
 - **Principles**: the LLM is never the policy decider (deterministic filters are) · inter-agent messages are data, not instructions · privileges only shrink on delegation · approvals are signed and bound to `(tool, args hash, amount, expiry)` · fail closed · every block/denial is observable in LangSmith.
-- **NemoClaw hardening (NS1–NS9)**: continuous policy-drift checks, risk-tiered sandboxes (read / payments / code), in-sandbox dual filters, `inference.local` + privacy routing, egress denial -> automatic isolation and review, `policy-add`-only change approval, secret hygiene, resource caps, pinned images + SBOM.
+- **NemoClaw hardening (NS1–NS9)**: continuous policy-drift checks, risk-tiered sandboxes (read / payments / code), in-sandbox dual filters, `inference.local` + privacy routing, egress denial -> automatic isolation and review, `policy add`-only change approval, secret hygiene, resource caps, pinned images + SBOM.
 - **Claude Security integration (S1–S8)**: (1) CI scan on every PR (block High+, post patch suggestions) (2) an **ingestion gate** for the 14 plugins (SHA pin + hash + scan before registration) (3) a `security_lead` team (scan / policy / red-team agents that **propose only; humans approve**) (4) a red-team regression suite (injection, handoff poisoning, amount tampering, PII exfiltration) (5) a hash-chained audit log.
 - **Status**: design stage. The real Claude Security and NemoClaw interfaces are unverified (`[VERIFY]`), so the core attaches through **interface-neutral adapters**.
 

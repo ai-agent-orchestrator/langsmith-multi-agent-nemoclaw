@@ -33,6 +33,9 @@ class EgressRule(BaseModel):
         return f"{self.host}:{self.port}"
 
 
+SANDBOX_NAME_RE = re.compile(r"^(?=.{1,19}$)[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+
+
 class ToolSpec(BaseModel):
     name: str
     side_effect: SideEffect = SideEffect.READ
@@ -47,6 +50,9 @@ class ToolSpec(BaseModel):
     def _sandbox_needs_name(self) -> "ToolSpec":
         if self.sandbox != "never" and not self.sandbox_name:
             raise ValueError(f"tool {self.name}: sandbox={self.sandbox} requires sandbox_name")
+        if self.sandbox_name and not SANDBOX_NAME_RE.match(self.sandbox_name):
+            raise ValueError(f"tool {self.name}: invalid sandbox_name {self.sandbox_name!r} "
+                             "(NemoClaw: 1-19 chars, lowercase letter first, single hyphens, alnum last)")
         return self
 
 

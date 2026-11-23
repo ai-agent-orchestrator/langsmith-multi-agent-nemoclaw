@@ -261,7 +261,7 @@ sequenceDiagram
 │   │   ├── orchestra-payments.yaml
 │   │   └── orchestra-claude-dev.yaml
 │   ├── Dockerfile.worker             # 샌드박스 워커 이미지 (onboard --from 용) [VERIFY]
-│   └── README.md                     # 운영 절차 (onboard, policy-add, 모니터링)
+│   └── README.md                     # 운영 절차 (onboard, policy add, 모니터링)
 ├── scenarios/                        # 시뮬레이션/평가 공용 시나리오 YAML (§11)
 ├── examples/
 │   ├── simulate_hierarchical.py      # [MUST] 확장
@@ -668,7 +668,7 @@ python -m orchestra.observability.showcase --help
 - OpenShell 샌드박스 런타임 위에서 에이전트를 실행하고, 정책 엔진이 파일시스템·네트워크·프로세스 계층을 제한한다. egress는 **기본 전부 거부**, YAML로 허용 목록을 정의하며 미등록 호스트 요청은 운영자 승인 대상으로 올라온다.
 - 5개 보안 계층 중 **Network·Inference는 실행 중 변경(hot-reload)**, Filesystem·Process·Gateway 인증은 샌드박스 재생성이 필요하다.
 - 네트워크 정책 엔트리 필드: `endpoints`(host, port, `protocol: rest|websocket|json-rpc|mcp`, `enforcement: enforce`, `rules: - allow: {method, path}`), `binaries`(실행파일 경로, glob). `binaries` 생략은 모든 실행파일 허용이라 권장되지 않는다. 바이너리는 첫 사용 시 SHA256이 기록되고 불일치 시 거부된다.
-- 프리셋 파일은 `nemoclaw-blueprint/policies/presets/<name>.yaml` (`preset: {name, description}` + `network_policies:`), 적용은 `nemoclaw <sandbox> policy-add`, 원시 정책 교체는 `openshell policy set --policy <file> <sandbox>` (프리셋 메타 블록 불가), 조회 `openshell policy get --full <sandbox>`.
+- 프리셋 파일은 `nemoclaw-blueprint/policies/presets/<name>.yaml` (`preset: {name, description}` + `network_policies:`), 적용은 `nemoclaw <sandbox> policy add`, 원시 정책 교체는 `openshell policy set --policy <file> <sandbox>` (프리셋 메타 블록 불가), 조회 `openshell policy get --full <sandbox>`.
 - 추론은 샌드박스 안에서 `inference.local`로 보내고 자격증명은 호스트에 남는다. **추론 제공자 호스트를 egress 정책에 추가하지 말 것**(관리형 자격증명 경계 우회).
 - LangChain Deep Agents Code를 런타임으로 쓰는 변형(`nemo-deepagents`, `nemoclaw onboard --agent langchain-deepagents-code`)이 있고 OTLP 트레이싱을 지원한다. `onboard --from <Dockerfile>`로 커스텀 이미지 사용.
 - 감시: `openshell term`(네트워크 활동 검토), `nemoclaw <name> status|logs` 계열 **[VERIFY: 설치 버전의 `--help`로 서브커맨드 확인]**.
@@ -713,7 +713,7 @@ class SandboxRunner(Protocol):
 
 | 파일 | 책임 |
 |---|---|
-| `nemoclaw/cli.py` | allowlist된 명령만 실행: `onboard`, `<name> connect`, `<name> policy-add <preset>`, `<name> policy-list`, `<name> status`, `<name> logs`, `openshell policy get --full`, `openshell policy set --policy --wait`. `shell=False`, 인자 검증, timeout, stdout JSON/텍스트 파서, `dry_run=True` 시 명령만 반환 |
+| `nemoclaw/cli.py` | allowlist된 명령만 실행: `onboard`, `<name> connect`, `<name> policy add <preset>`, `<name> policy-list`, `<name> status`, `<name> logs`, `openshell policy get --full`, `openshell policy set --policy --wait`. `shell=False`, 인자 검증, timeout, stdout JSON/텍스트 파서, `dry_run=True` 시 명령만 반환 |
 | `nemoclaw/runtime.py` | `in_sandbox()` (env `ORCHESTRA_IN_SANDBOX=1` 또는 `/sandbox` 존재 등 — 판정 기준은 설정 가능) |
 | `nemoclaw/inference.py` | 샌드박스 내부일 때 ModelFactory provider=`openai_compatible`, `base_url=NEMOCLAW_INFERENCE_BASE_URL`(기본값은 **설정 필수**; 문서상 호스트명 `inference.local` **[VERIFY: 경로·스킴]**), API 키는 더미. 자격증명은 절대 샌드박스로 복사하지 않음 |
 | `nemoclaw/policy.py` | ① DomainPack의 `ToolSpec.egress`·sandbox 지정에서 샌드박스별 preset YAML 생성 ② 스키마 검증(pydantic) ③ 금지 검사: 추론 제공자 호스트 포함 금지, `binaries` 누락 금지, `access: full` 금지, `allowed_ips` 사설대역 금지(명시 opt-in 제외), 샌드박스 간 egress 교차 금지 ④ 커밋된 `nemoclaw/presets/*.yaml`과 diff → CI drift 실패 |
@@ -782,7 +782,7 @@ network_policies:
 1. `python scripts/gen_nemoclaw_presets.py --org travel_payment --security-mode masked` → `nemoclaw/presets/*.yaml`
 2. 프리셋을 NemoClaw 소스 트리 `nemoclaw-blueprint/policies/presets/`에 복사(파일명 = `preset.name`)
 3. 샌드박스 생성: `orchestra-code`, `orchestra-payments` 각각 onboard (`--from nemoclaw/Dockerfile.worker`, 비대화형은 `NEMOCLAW_POLICY_TIER` 등 env) **[VERIFY]**
-4. `nemoclaw orchestra-payments policy-add orchestra-payments` / `... orchestra-langsmith`
+4. `nemoclaw orchestra-payments policy add orchestra-payments` / `... orchestra-langsmith`
 5. `python -m orchestra.sandbox.nemoclaw doctor` → 바이너리·샌드박스·preset·추론 경로 점검 표
 6. 운영 중 감시: `openshell term`, `nemoclaw <name> logs`, LangSmith `nemoclaw_egress_denied` feedback 필터
 

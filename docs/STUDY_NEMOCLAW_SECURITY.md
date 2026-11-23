@@ -71,7 +71,7 @@ NemoClaw 는 에이전트(OpenClaw 등)를 **OpenShell 샌드박스 안에서** 
 
 ### 3.2 네트워크 정책 (가장 자주 만지는 부분)
 - 기본은 **전부 차단**. 허용은 "엔드포인트(host, port, protocol) + 규칙(method/path) + 허용 실행파일(binaries)" 단위.
-- **preset**: 재사용 가능한 정책 조각(YAML). 샌드박스에 `policy-add` 로 덧붙인다.
+- **preset**: 재사용 가능한 정책 조각(YAML). 샌드박스에 `policy add` 로 덧붙인다.
 - **운영자 승인 흐름**: 막힌 요청이 생기면 운영자가 보고 허용 여부를 결정한다(에이전트가 스스로 못 연다).
 - 이 저장소는 정책을 **손으로 쓰지 않고 `ToolSpec.egress` 선언에서 생성**한다 → 도구와 정책이 어긋나지 않음.
   - 코드: `orchestra/sandbox/nemoclaw/policy.py`, 생성기 `scripts/gen_nemoclaw_presets.py`
@@ -107,12 +107,12 @@ NemoClaw 는 에이전트(OpenClaw 등)를 **OpenShell 샌드박스 안에서** 
 2. **일부러 깨뜨리기**: `tests/test_policy.py` 를 읽고, 금지 규칙 하나(예: `access: full`)를 넣어 검증이 실패하는 것을 확인.
 3. **시나리오로 보기**: `python -I examples/simulate_hierarchical.py --scenario sandbox_egress_denied` — 결제 호스트가 정책에 없을 때 무슨 일이 일어나는지 이벤트 순서로 설명.
 4. **마지막 방어선 확인**: `tests/test_simulation_golden.py` 의 "필터를 다 꺼도 COMMIT 차단" 테스트가 왜 필요한지 설명.
-5. **R0 (실환경)**: NemoClaw 설치 → 정책 조회·`policy-add`·거부 이벤트를 직접 한 번 일으켜 보고 `docs/NEMOCLAW_REALITY.md` 에 실제 명령과 출력 기록.
+5. **R0 (실환경)**: NemoClaw 설치 → 정책 조회·`policy add`·거부 이벤트를 직접 한 번 일으켜 보고 `docs/NEMOCLAW_REALITY.md` 에 실제 명령과 출력 기록.
 
 ## 6. 자가 점검 질문
 - 모델이 인젝션에 완전히 속았다고 가정할 때, 최악의 피해는 어디서 멈추는가?
 - 네트워크 정책과 호스트 필터가 같은 규칙을 중복해서 갖는 게 왜 낭비가 아닌가?
-- 정책 전체 교체(`policy set`)보다 `policy-add` 를 쓰라는 이유는?
+- 정책 전체 교체(`policy set`)보다 `policy add` 를 쓰라는 이유는?
 - 파일시스템 계층을 바꾸려면 왜 재생성이 필요하고, 그게 설계 시점에 주는 압력은?
 
 ## 7. 더 읽을 것

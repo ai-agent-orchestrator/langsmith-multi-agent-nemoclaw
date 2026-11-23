@@ -7,7 +7,7 @@
 위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
 LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(99 tests), 나머지는 Codex 인수인계 중입니다.
+> **현재 상태 (2026-11-22)** — 코어는 구현·테스트 완료(178 tests), 나머지는 Codex 인수인계 중입니다.
 > 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#nemoclaw-보완-예정) 참고).
 
 | 문서 | 내용 |
@@ -18,13 +18,14 @@ LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시�
 | [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md) | **멀티에이전트 시대 보안 설계**, NemoClaw 강화, Claude Security 연동 계획 |
 | [`docs/STUDY_NEMOCLAW_SECURITY.md`](docs/STUDY_NEMOCLAW_SECURITY.md) · [`docs/STUDY_LANGSMITH_EVAL.md`](docs/STUDY_LANGSMITH_EVAL.md) | 학습 가이드: NemoClaw 보안 · LangSmith eval (개념부터) |
 | [`docs/HOMEWORK_SECURITY.md`](docs/HOMEWORK_SECURITY.md) | 보안 하네스 과제(R0~R4, O1~O4)와 진행 현황 |
+| [`docs/CONCEPTS_AGENT_SECURITY.md`](docs/CONCEPTS_AGENT_SECURITY.md) · [`docs/NEMOCLAW_REALITY.md`](docs/NEMOCLAW_REALITY.md) | 개발 보안 개념 정리(멀티에이전트 × NemoClaw) · 문서·스키마로 확인한 NemoClaw 실측 |
 | [`AGENTS.md`](AGENTS.md) | Codex 작업 규칙·PR 템플릿 |
 
 ## 빠른 실행
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 99 passed
+python -m pytest -q tests                                   # 178 passed
 python -I examples/simulate_hierarchical.py --list          # 시나리오 5개
 python -I examples/simulate_hierarchical.py                 # 제주 + 호텔 hold + 승인 결제
 python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
@@ -143,14 +144,14 @@ PASS
 | N6 | 코드 실행 샌드박스(`orchestra-code`), Landlock/프로세스 계층 정의, (선택) Deep Agents Code | ⬜ |
 | N7 | `Dockerfile.worker`, 운영 절차 문서 | ⬜ |
 
-**알려진 한계**: ① `binaries` 가 `python3*` 글롭이라 실행파일 단위가 아니라 **샌드박스 단위 격리**에 의존 → 결제 샌드박스엔 워커 외 코드를 두지 않음, ② `openshell policy set` 은 정책 전체를 교체하므로 운영 변경은 `policy-add` 로만, ③ 파일시스템·프로세스 계층은 **샌드박스 재생성**이 필요, ④ 승인·결제 장부는 현재 프로세스 메모리, ⑤ CLI·정책 스키마는 NemoClaw 버전마다 바뀔 수 있어 **설치된 버전에서 먼저 확인**(`[VERIFY]`).
+**알려진 한계**: ① `binaries` 가 `python3*` 글롭이라 실행파일 단위가 아니라 **샌드박스 단위 격리**에 의존 → 결제 샌드박스엔 워커 외 코드를 두지 않음, ② `openshell policy set` 은 정책 전체를 교체하므로 운영 변경은 `policy add` 로만, ③ 파일시스템·프로세스 계층은 **샌드박스 재생성**이 필요, ④ 승인·결제 장부는 현재 프로세스 메모리, ⑤ CLI·정책 스키마는 NemoClaw 버전마다 바뀔 수 있어 **설치된 버전에서 먼저 확인**(`[VERIFY]`).
 
 ## 향후 계획 — 보안 최상 지향 (NemoClaw 강화 + Claude Security 연동)
 
 멀티에이전트는 에이전트 간 handoff·툴 결과·플러그인·메모리마다 신뢰 경계가 생긴다. 그래서 "프롬프트를 잘 쓰자"가 아니라 **Zero-Trust Agent Mesh** 로 설계한다. 전문은 [`docs/SECURITY_ROADMAP.md`](docs/SECURITY_ROADMAP.md).
 
 - **원칙**: LLM 은 정책 결정자가 아님(결정적 필터가 결정) · 에이전트 간 메시지는 데이터일 뿐 지시가 아님 · 권한은 위임 시 줄어들기만 함 · 승인은 `(tool, 인자 해시, 금액, 만료)` 에 서명으로 바인딩 · 실패는 닫는다 · 모든 차단·거부는 LangSmith 로 관측.
-- **NemoClaw 강화(NS1~NS9)**: 정책 드리프트 상시 점검, 위험도별 샌드박스 티어(read / payments / code), 샌드박스 내부 이중 필터, `inference.local` + 프라이버시 라우팅, egress 거부 → 자동 격리·리뷰, `policy-add` 만 허용하는 변경 승인, 시크릿 위생, 리소스 상한, 이미지 핀 고정·SBOM.
+- **NemoClaw 강화(NS1~NS9)**: 정책 드리프트 상시 점검, 위험도별 샌드박스 티어(read / payments / code), 샌드박스 내부 이중 필터, `inference.local` + 프라이버시 라우팅, egress 거부 → 자동 격리·리뷰, `policy add` 만 허용하는 변경 승인, 시크릿 위생, 리소스 상한, 이미지 핀 고정·SBOM.
 - **Claude Security 연동(S1~S8)**: ① PR 마다 CI 스캔(High 이상 머지 차단·패치안 코멘트) ② 플러그인 14개 **인입 게이트**(SHA 핀 + 해시 + 스캔 통과분만 등록) ③ `security_lead` 팀(scan / policy / redteam 에이전트, **제안만 하고 적용은 사람 승인**) ④ 레드팀 회귀 스위트(인젝션·handoff 오염·금액 조작·PII 유출) ⑤ 해시 체인 감사 로그.
 - **현황**: 설계 단계. Claude Security·NemoClaw 의 실제 인터페이스는 확인 전(`[VERIFY]`)이라 코어는 **인터페이스 중립 어댑터**로 붙인다.
 

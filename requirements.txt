@@ -6,3 +6,4 @@ langsmith
 pydantic>=2
 pyyaml
 pytest
+jsonschema
