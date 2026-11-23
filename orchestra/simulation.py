@@ -47,16 +47,30 @@ def list_scenarios() -> list[str]:
 
 
 def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[list[bool]] = None,
-                 security_mode: str = "closed") -> SimResult:
+                 security_mode: str = "closed", observation: Any = None, backend: Optional[str] = None,
+                 org: str | Path | None = None, pattern: str = "graph", trace: bool = False) -> SimResult:
+    """Run a scenario with optional org override, shared-builder entry point, and local trace capture."""
+    if pattern not in {"graph", "tools"}:
+        raise ValueError("unknown simulation pattern")
     sc = load_scenario(sc) if isinstance(sc, str) else sc
+    if org is not None:
+        path = Path(org)
+        if not path.is_file():
+            raise ValueError("org YAML path does not exist or is not a file")
+        sc = {**sc, "org": str(path)}
     ctx = sc.get("context", {})
     services: dict[str, Any] = {"today": ctx.get("today"), "now": 0.0}
     services["clock"] = lambda: services["now"]
-    events = EventLog()
+    events = EventLog(capture_trace=trace)
     rt = Runtime(security_mode=security_mode, sandbox_mode=sandbox, events=events, services=services,
                  clock=services["clock"])
     factory = ScriptedModelFactory(sc.get("script", {}), events)
-    app = build_hierarchical_app(sc["org"], factory, services=services, runtime=rt)
+    builder = build_hierarchical_app
+    if pattern == "tools":
+        from .patterns.hierarchical_tools import build_tools_app
+
+        builder = build_tools_app
+    app = builder(sc["org"], factory, services=services, runtime=rt, backend=backend)
 
     runner = None
     if sandbox == "fake":
@@ -70,7 +84,7 @@ def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[lis
         runner = FakeSandboxRunner(allowed)
         rt.sandbox = runner
 
-    svc = OrchestraService(app)
+    svc = observation.service(app) if observation is not None else OrchestraService(app)
     tid = sc["id"]
     decisions = list(approve if approve is not None else sc.get("approve", [True]))
     out = svc.ask(sc["request"], thread_id=tid)

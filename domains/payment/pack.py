@@ -8,10 +8,11 @@ from langchain_core.tools import BaseTool
 
 from domains.common.holds import get_store
 from orchestra import registry
+from orchestra.ledger import LedgerConfigurationError
 from orchestra.filters.base import Filter
 from orchestra.specs import AgentSpec, EgressRule, FilterSpec, SideEffect, TeamSpec, ToolSpec
 
-from .filters import amount_limit, hold_expiry, idempotency, state_transition
+from .filters import amount_limit, hold_expiry, idempotency, state_transition, _amount
 from .ledger import MockPaymentProvider
 from .tools import make_tools
 
@@ -43,8 +44,13 @@ class PaymentPack:
 
     def __init__(self, services: dict[str, Any]):
         holds = get_store(services)
-        self.provider: MockPaymentProvider = services.setdefault("payments", MockPaymentProvider(holds))
+        self.provider: MockPaymentProvider = services.setdefault("payments", MockPaymentProvider(holds, store=services.get("ledger_store")))
+        store = services.get("ledger_store")
+        if store is not None and store.persistent and (type(self.provider) is not MockPaymentProvider or self.provider.store is not store):
+            raise LedgerConfigurationError("persistent payment provider must share the runtime transaction store")
         self._tools = make_tools(self.provider)
+        services["approval_amount"] = lambda tool, args: _amount(self.provider, tool, args)
+        services["ledger_atomic_tools"] = {"capture_payment", "refund_payment"}
 
     def tools(self) -> dict[str, tuple[BaseTool, ToolSpec]]:
         out = {}

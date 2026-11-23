@@ -1,0 +1,23 @@
+name: Offline regression
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    env:
+      LANGSMITH_TRACING: "false"
+      LANGSMITH_TEST_TRACKING: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: ruff check . && mypy orchestra
+      - run: pytest -q
+      - run: python -I examples/simulate_hierarchical.py --mode print
+      - run: python -I examples/simulate_hierarchical.py --mode graph --sandbox fake --security-mode closed
+      - run: python -m orchestra.observability.showcase all --offline
+      - run: python scripts/gen_nemoclaw_presets.py --check
+      - run: python scripts/sync_third_party.py --check

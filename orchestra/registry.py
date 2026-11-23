@@ -84,4 +84,9 @@ def resolve(org: OrgSpec, packs: list[DomainPack]) -> Resolved:
             if tool_name not in tools:
                 raise ValueError(f"agent {a.id}: unknown tool {tool_name!r}")
     assert_valid(full)
+    from .capabilities import capability_errors
+
+    errors = capability_errors(full, tools=tools, agent_domains=agent_domain, tool_domains=tool_domain)
+    if errors:
+        raise ValueError("; ".join(errors))
     return Resolved(full, tools, specs, impls, tool_domain, agent_domain)
