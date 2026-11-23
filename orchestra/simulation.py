@@ -47,7 +47,7 @@ def list_scenarios() -> list[str]:
 
 
 def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[list[bool]] = None,
-                 security_mode: str = "closed") -> SimResult:
+                 security_mode: str = "closed", observation: Any = None) -> SimResult:
     sc = load_scenario(sc) if isinstance(sc, str) else sc
     ctx = sc.get("context", {})
     services: dict[str, Any] = {"today": ctx.get("today"), "now": 0.0}
@@ -70,7 +70,7 @@ def run_scenario(sc: dict | str, *, sandbox: str = "fake", approve: Optional[lis
         runner = FakeSandboxRunner(allowed)
         rt.sandbox = runner
 
-    svc = OrchestraService(app)
+    svc = observation.service(app) if observation is not None else OrchestraService(app)
     tid = sc["id"]
     decisions = list(approve if approve is not None else sc.get("approve", [True]))
     out = svc.ask(sc["request"], thread_id=tid)

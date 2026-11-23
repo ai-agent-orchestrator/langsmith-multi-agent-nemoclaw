@@ -63,3 +63,24 @@ class OrchestraService:
         with self.scope():
             res = self.app.graph.invoke(Command(resume=decision), self._cfg(thread_id))
         return self._finish(res, thread_id)
+
+
+def studio_graph(config: Optional[dict] = None) -> Any:
+    """Build a fresh scripted/fake graph for local Studio, without keys or paid models."""
+    from .models.factory import ScriptedModelFactory
+    from .patterns.hierarchical_graph import build_hierarchical_app
+    from .runtime import Runtime
+    from .sandbox.fake import FakeSandboxRunner
+    from .sandbox.nemoclaw import policy
+    from .simulation import load_scenario
+
+    scenario = load_scenario("jeju_trip_payment")
+    services = {"today": scenario["context"]["today"], "now": 0.0}
+    runtime = Runtime(security_mode="closed", sandbox_mode="fake", services=services)
+    app = build_hierarchical_app(scenario["org"], ScriptedModelFactory(scenario["script"], runtime.events),
+                                 runtime=runtime, services=services)
+    specs = [spec for _, spec in app.resolved.tools.values()]
+    presets = policy.build_presets(specs, security_mode="closed")
+    sandboxes = sorted({spec.sandbox_name for spec in specs if spec.sandbox_name})
+    runtime.sandbox = FakeSandboxRunner(policy.allowed_by_sandbox(presets, policy.applied_presets(sandboxes, presets)))
+    return app.graph

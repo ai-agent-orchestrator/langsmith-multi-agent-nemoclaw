@@ -94,19 +94,27 @@ def build_hierarchical_app(
     id_to_name = {aid: a.name for aid, a in org.agents.items()}
     built: dict[str, Runnable] = {}
 
+    def prompt_text(declaration: str) -> Any:
+        if declaration.startswith("hub:"):
+            resolver = services.get("prompt_resolver")
+            if not callable(resolver):
+                raise ValueError("hub prompt requires an explicit prompt_resolver with local fallback")
+            return resolver(declaration)
+        return read_prompt(declaration, base)
+
     def build_agent(aid: str) -> Runnable:
         a = org.agents[aid]
         tools = [wrap_tool(res.tools[t][0], res.tools[t][1], chain, rt, agent=a.name, domain=res.tool_domain[t])
                  for t in a.tools]
         tools += [make_handoff(id_to_name[h], rt, source=a.name) for h in a.handoff_to]
         model = model_factory(role=a.name, alias=a.model, sensitivity=_sensitivity(a, res), kind="agent")
-        return create_react_agent(model, tools, name=a.name, prompt=read_prompt(a.prompt, base) or None)
+        return create_react_agent(model, tools, name=a.name, prompt=prompt_text(a.prompt) or None)
 
     def build_team(t: TeamSpec, is_root: bool) -> Any:
         members = [built[m] for m in t.members]
         model = model_factory(role=t.name, alias=t.model, sensitivity="public", kind="supervisor")
         sup = create_supervisor(
-            cast(Any, members), model=model, prompt=read_prompt(t.prompt, base) or None, supervisor_name=t.name,
+            cast(Any, members), model=model, prompt=prompt_text(t.prompt) or None, supervisor_name=t.name,
             output_mode=t.output_mode, tools=[make_report(t.name, rt), make_escalate(t.name, rt)],
         )
         # langgraph_supervisor 는 모든 멤버에 고정 엣지 member→supervisor 를 건다. handoff 를 쓰는 멤버는

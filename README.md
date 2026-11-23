@@ -41,6 +41,15 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 
 ## What is implemented
 
+LangSmith observation is available under `orchestra.observability`; the original
+`travel_planner.observability` and `monitoring` imports remain compatibility shims.
+Run `python -m orchestra.observability.showcase all --offline` to generate a local
+24-feature manifest and session report. Real SDK traces terminate at a loopback
+receiver; remote mutations are explicitly recorded offline. The payment safety
+gate fails CI on an executed COMMIT without matching approval evidence.
+See [LangSmith setup and verified limits](docs/langsmith-ui-setup.md) for service
+hook integration, Prompt Hub fallbacks, UI procedures and unsupported capabilities.
+
 Third-party snapshots are pinned in `third_party/LOCK.json` with per-file SHA-256
 hashes. Run `python scripts/sync_third_party.py --check` without network access to
 check integrity. To update a snapshot, use only this script:
