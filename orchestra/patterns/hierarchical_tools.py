@@ -17,6 +17,7 @@ from ..messages import TaskBrief as TaskBrief, TeamReport as TeamReport, Message
 
 from .. import hitl
 from ..runtime import Runtime
+from ..taint import ToolTaintBlocked, current_thread, reject_labelled_instructions
 
 
 def handoff_tool_name(target: str) -> str:
@@ -32,6 +33,9 @@ def make_handoff(target: str, rt: Optional[Runtime] = None, source: str = "") ->
         brief: Optional[dict[str, Any]] = None,
     ):
         """같은 팀의 다른 전문 에이전트에게 대화 제어권을 직접 넘긴다 (팀장을 거치지 않는다)."""
+        reject_labelled_instructions(brief)
+        if rt is not None and current_thread() in rt.quarantined_threads:
+            raise ToolTaintBlocked("tool_instruction_blocked")
         try:
             contract = validate_contract("brief", brief if brief is not None else {
                 "goal": f"handoff to {target}", "parent": source, "source": "agent",

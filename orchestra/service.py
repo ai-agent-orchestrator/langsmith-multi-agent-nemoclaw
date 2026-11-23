@@ -14,6 +14,7 @@ from .filters.base import Action, FilterContext, Stage
 from .patterns.hierarchical_graph import BuiltApp
 from .messages import MessageContractBlocked
 from .hitl import ApprovalBindingBlocked
+from .taint import ToolTaintBlocked
 
 
 def _text(msg: Any) -> str:
@@ -67,6 +68,10 @@ class OrchestraService:
         try:
             with self.scope():
                 result = self.app.graph.invoke(payload, self._cfg(thread_id, user_id))
+        except ToolTaintBlocked:
+            self.app.runtime.events.add("blocked", by="tool_taint", reason="tool_instruction_blocked")
+            return {"answer": "차단: 툴 결과의 지시문 전파", "blocked": True, "reason": "tool_instruction_blocked",
+                    "thread_id": thread_id, "interrupt": None}
         except MessageContractBlocked:
             self.app.runtime.events.add("blocked", by="message_contract", reason="message_contract_blocked")
             return {"answer": "차단: 메시지 계약 위반", "blocked": True, "reason": "message_contract_blocked",

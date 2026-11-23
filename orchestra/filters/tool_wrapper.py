@@ -16,6 +16,7 @@ from .. import hitl
 from ..runtime import Runtime
 from ..sandbox.base import ExecRequest
 from ..specs import SideEffect, ToolSpec
+from ..taint import ToolTaintBlocked, current_thread, instruction_in, reject_labelled_instructions
 from .base import Action, FilterContext, Stage
 from .chain import FilterChain
 
@@ -47,6 +48,10 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
 
     def run(**kwargs: Any) -> Any:
         args: dict[str, Any] = dict(kwargs)
+        if spec.side_effect == SideEffect.COMMIT:
+            reject_labelled_instructions(args)
+            if current_thread() in rt.quarantined_threads:
+                raise ToolTaintBlocked("tool_instruction_blocked")
 
         pre = chain.run(_ctx(Stage.PRE_TOOL, args), dedupe=tool.name)
         if pre.action == Action.BLOCK:
@@ -124,11 +129,25 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
         if isinstance(output, dict) and output.get("error") in ("sandbox_failed", "sandbox_unavailable"):
             return output
 
+        tainted = instruction_in(output)
+        if tainted:
+            rt.quarantined_threads.add(current_thread())
+            rt.events.add("blocked", by="tool_taint", stage="post_tool", reason="tool_instruction_blocked", tool=tool.name)
+            output = {"error": "tool_instruction_blocked"}
         post = chain.run(_ctx(Stage.POST_TOOL, output), dedupe=f"{tool.name}:post")
+        if not tainted and instruction_in(post.payload):
+            tainted = True
+            rt.quarantined_threads.add(current_thread())
+            rt.events.add("blocked", by="tool_taint", stage="post_tool", reason="tool_instruction_blocked", tool=tool.name)
+        if tainted:
+            labelled = {"source": "tool", "data": {"error": "tool_instruction_blocked"}}
+            rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled)
+            return labelled
         if post.action == Action.BLOCK:
             return _blocked(post.reason, post.blocked_by, "post_tool")
-        rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=post.payload)
-        return post.payload
+        labelled = {"source": "tool", "data": post.payload}
+        rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled)
+        return labelled
 
     def _execute(args: dict[str, Any], route_sandbox: bool) -> Any:
         wants_box = route_sandbox or spec.sandbox == "required"

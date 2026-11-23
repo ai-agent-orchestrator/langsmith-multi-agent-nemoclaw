@@ -7,6 +7,7 @@ from typing import Any, Literal, overload
 
 from langchain_core.messages import BaseMessage, ToolMessage
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from .taint import ToolTaintBlocked, instruction_in, reject_labelled_instructions
 
 Source = Literal["user", "tool", "agent", "system"]
 
@@ -126,8 +127,11 @@ def prepare_messages(messages: list) -> list[BaseMessage]:
                 raise MessageContractBlocked("message_contract_blocked") from None
         if len(json.dumps(message.content, ensure_ascii=False)) > 32768:
             raise MessageContractBlocked("message_contract_blocked")
+        if source == "tool" and instruction_in(content):
+            raise ToolTaintBlocked("tool_instruction_blocked")
         for call in getattr(message, "tool_calls", []):
             if call["name"].startswith("transfer_to_") and "brief" in call["args"]:
+                reject_labelled_instructions(call["args"]["brief"])
                 validate_contract("brief", call["args"]["brief"])
         if isinstance(message, ToolMessage) and message.name in {"report_to_parent", "escalate"}:
             try:

@@ -23,7 +23,7 @@ from .client import SafeClient
 from orchestra.filters.builtin.pii_mask import mask_any
 
 from orchestra.filters.builtin.pii_mask import LEGACY_MASK_RULES as MASK_RULES
-from orchestra.filters.builtin.request_gate import BLOCK_RULES
+from orchestra.filters.builtin.request_gate import BLOCK_RULES as BLOCK_RULES, check_text
 
 MODES = ("off", "masked", "closed")
 
@@ -155,10 +155,8 @@ class GateResult:
 
 def security_gate(question: str) -> GateResult:
     """에이전트에 도달하기 전에 대량 개인정보 조회/프롬프트 인젝션/비밀 유출 요청을 차단한다."""
-    for name, pattern in BLOCK_RULES:
-        if pattern.search(question):
-            return GateResult(True, name)
-    return GateResult(False)
+    reason = check_text(question)
+    return GateResult(bool(reason), reason or "")
 
 
 def _last_text(result: Any) -> str:

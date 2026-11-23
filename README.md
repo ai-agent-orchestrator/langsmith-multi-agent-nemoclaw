@@ -268,3 +268,27 @@ foreign-domain sandbox tools and unknown grants fail closed before graph constru
 Generated fanout leads inherit the same ancestor bounds. Host-defined agents without
 pack metadata have no domain or sandbox authority. These checks validate graph
 configuration; OS sandbox startup/policy attestation remains the separate runner work.
+
+### Inspection normalization and tool provenance (C19)
+
+The request gate checks a separate inspection copy: NFKC, decomposition/removal
+of combining marks and zero-width formatters, whitespace folding, and 1→i / 0→o.
+Business payloads, amounts, dates and original user messages are never rewritten.
+The legacy security gate uses the same inspection function.
+
+Successful post-tool data is exposed as `{"source":"tool","data": ...}`; this
+host-owned outer label overrides any source claim inside the returned data.
+The existing pre-model/handoff paths retain tool roles and reject recognized
+instruction patterns even through replayed data frames. Nested tool-labelled
+instructions cannot be passed as delegation or COMMIT data. Once a tool result
+matches the shared gate patterns, its raw text is replaced with a generic blocked
+marker and that thread is conservatively quarantined: delegation and COMMIT are
+blocked before approval or execution. Normal model continuation also stops on
+the marker. Quarantine is scoped by LangGraph configuration and is not cleared by
+user approval; use a new thread after investigation. State is process-memory only.
+
+This is **defense in depth**, not a complete prompt-injection solution or semantic
+taint tracking. Unrecognized paraphrases, other encodings, and model reasoning
+cannot be proven safe by these rules. A recognized quoted example can also trigger
+a conservative block. Source labels attest transport, not truth. Scanner, red-team
+framework, audit signatures and real sandbox runner remain separate work.

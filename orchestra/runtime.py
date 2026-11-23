@@ -102,3 +102,4 @@ class Runtime:
     clock: Callable[[], float] = time.time
     thread_id: str = "default"
     graph: Any = field(default=None, repr=False)
+    quarantined_threads: set[str] = field(default_factory=set, repr=False)
