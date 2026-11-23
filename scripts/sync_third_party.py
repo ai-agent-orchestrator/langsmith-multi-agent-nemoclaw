@@ -83,6 +83,7 @@ def select_files(blobs: dict[str, bytes], component: str) -> dict[str, bytes]:
         allowed = (
             p.name.startswith(("LICENSE", "NOTICE"))
             or sub.match("agents/*.md") and len(sub.parts) == 2
+            or sub.match("commands/*.md") and len(sub.parts) == 2
             or sub.as_posix() == ".claude-plugin/plugin.json"
             or sub.as_posix() == "hooks/hooks.json"
             or (sub.parts[0] == "skills" and (

@@ -11,6 +11,7 @@ from scripts.sync_third_party import check, select_files
 def test_plugin_selection_is_data_allowlist():
     blobs = {
         "plugins/p/agents/a.md": b"prompt\r\n",
+        "plugins/p/commands/c.md": b"command",
         "plugins/p/skills/s/agents/grader.md": b"grader",
         "plugins/p/skills/s/references/ref.md": b"reference",
         "plugins/p/hooks/hooks.json": b"{}",
@@ -23,7 +24,8 @@ def test_plugin_selection_is_data_allowlist():
     }
     selected = select_files(blobs, "claude_plugins")
     assert selected["plugins/p/agents/a.md"] == b"prompt\r\n"
-    assert len(selected) == 8
+    assert selected["plugins/p/commands/c.md"] == b"command"
+    assert len(selected) == 9
     assert "plugins/p/hooks/execute.sh" not in selected
 
 
