@@ -126,6 +126,9 @@ def check_expect(res: SimResult) -> list[str]:
         got = [h for e in ev.of("sandbox") for h in (e.data.get("egress_denied") or [])]
         if bool(got) != exp["sandbox_denied"]:
             errs.append(f"sandbox_denied: want {exp['sandbox_denied']} got {got}")
+    if exp.get("invariants"):                      # 보안 불변식 (orchestra/security/invariants.py)
+        from .security.invariants import violations
+        errs += [f"invariant {v}" for v in violations(res)]
     if res.leftovers:
         errs.append(f"unconsumed script turns: {res.leftovers}")
     return errs
