@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from ...normalization import inspection_copy
 
 from ..base import Filter, FilterContext, FilterDecision
 
@@ -24,6 +25,8 @@ BLOCK_RULES = [
 
 
 def check_text(text: str) -> str | None:
+    """Match only a normalized inspection copy, retaining the caller's original data."""
+    text = inspection_copy(text)
     for name, pat in BLOCK_RULES:
         if pat.search(text):
             return name

@@ -8,6 +8,17 @@ from orchestra.runtime import EventLog
 from orchestra.specs import FilterSpec, SideEffect, ToolSpec
 
 
+def test_hookify_conversion_joins_existing_filter_chain():
+    """Converted rules block before a tool can run, without enabling EXEC tools."""
+    from orchestra.filters.builtin.hookify_rules import parse_rule
+
+    entry = parse_rule("---\nname: dangerous\nevent: bash\naction: block\npattern: rm\\s+-rf\n---\nDenied")
+    result = FilterChain([entry]).run(FilterContext(
+        stage=Stage.PRE_TOOL, payload={"command": "rm -rf data"}, tool="shell_run",
+    ))
+    assert result.action == Action.BLOCK
+
+
 def F(name, fn):
     class _F:
         def __init__(self): self.name = name

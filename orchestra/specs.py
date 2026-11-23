@@ -5,7 +5,7 @@ import re
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -76,6 +76,16 @@ class AgentSpec(BaseModel):
         return self
 
 
+class CapabilitySpec(BaseModel):
+    """Optional explicit upper bounds; omitted dimensions derive from child grants."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    tools: list[str] | None = None
+    domains: list[str] | None = None
+    sandboxes: list[str] | None = None
+
+
 class TeamSpec(BaseModel):
     name: str
     prompt: str = ""
@@ -85,6 +95,7 @@ class TeamSpec(BaseModel):
     max_fanout: int = Field(default=5, ge=2, le=8)
     parallel: bool = False        # 구현은 M6(Codex): Send 팬아웃
     reducer: Optional[str] = None
+    capabilities: CapabilitySpec = Field(default_factory=CapabilitySpec)
 
     @field_validator("name")
     @classmethod
@@ -120,3 +131,13 @@ class OrgSpec(BaseModel):
     domains: list[str]
     filters: list[FilterSpec] = Field(default_factory=list)
     recursion_limit: Optional[int] = None
+
+    @model_validator(mode="after")
+    def attenuated_capabilities(self) -> "OrgSpec":
+        """Reject explicit privilege amplification at schema validation time."""
+        from .capabilities import capability_errors
+
+        errors = capability_errors(self)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self

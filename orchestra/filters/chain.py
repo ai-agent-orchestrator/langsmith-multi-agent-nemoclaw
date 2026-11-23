@@ -97,7 +97,7 @@ class FilterChain:
         return res
 
     def _emit(self, ctx: FilterContext, name: str, d: FilterDecision, dedupe: Optional[str]) -> None:
-        if not self.events or d.action == Action.ALLOW:
+        if not self.events or d.action == Action.ALLOW and not self.events.capture_trace:
             return
         key = f"filter:{dedupe}:{name}:{ctx.stage.value}:{d.action.value}" if dedupe else None
         self.events.add(

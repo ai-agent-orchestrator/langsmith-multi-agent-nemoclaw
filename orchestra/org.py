@@ -84,7 +84,9 @@ def validate_org(org: OrgSpec) -> list[str]:
         for tgt in a.handoff_to:
             if parent.get(aid) is None or parent.get(tgt) != parent.get(aid):
                 errs.append(f"agent {aid}: handoff to {tgt!r} crosses team boundary")
-    return errs
+    from .capabilities import capability_errors
+
+    return errs + capability_errors(org)
 
 
 def assert_valid(org: OrgSpec) -> OrgSpec:

@@ -78,11 +78,11 @@ python scripts/gen_nemoclaw_presets.py --check             # preset drift 검사
 1. **interrupt 재개 = 툴 노드 재실행.** `tool_wrapper.run` 에서 `hitl.request()` **앞쪽 코드는 부작용이 없어야** 한다(필터·키 계산만). 이벤트는 `dedupe_key` 로 중복 방지. 이 규칙을 깨면 결제가 2번 일어난다 → `test_approval_resume_runs_capture_exactly_once` 가 지킨다.
 2. **`langgraph_supervisor` 는 멤버마다 `member→supervisor` 고정 엣지를 건다.** handoff 를 쓰는 멤버는 `_detach_to_supervisor` 로 조건부 엣지로 바꿨다. 이 함수를 지우면 팀장이 handoff 도중 끼어든다 → `test_handoff_does_not_wake_team_supervisor_midway`.
 3. **`budget` 필터는 재개 시 카운트가 1~2 늘 수 있다**(보수적으로 설정).
-4. **`ApprovalLedger`/`EventLog`/`MockPaymentProvider` 는 프로세스 메모리.** 다중 프로세스·재시작 후 재개는 지원하지 않는다. 운영 전환 시 영속 저장소 필요(후속).
+4. **기본 `ApprovalLedger`/`EventLog`/`MockPaymentProvider` 는 프로세스 메모리.** C22의 `ORCHESTRA_LEDGER=sqlite:///명시적경로`로 장부를 영속화할 수 있으며 HMAC 키 환경변수가 필수다. 원본 ApprovalRecord는 메모리 전용이고 DB에는 HMAC·마스킹된 표시·만료·소비 상태만 저장한다. 로컬 mock 결제의 승인 소비/멱등 기록은 한 트랜잭션이다. LangGraph 체크포인트·HoldStore·모델 큐는 영속화하지 않으므로 전체 워크플로의 재시작 후 resume를 지원한다고 해석하지 않는다. 실제 PG·원격 샌드박스 원자성은 미검증이며 SQLite COMMIT은 로컬 mock/Fake 경로만 허용한다.
 5. `thread_id` 는 전역 변수가 아니라 LangGraph config 에서 읽는다(동시 요청 안전). 새 코드도 `rt.thread_id` 를 쓰지 말 것.
 6. 프롬프트 `file:` 경로는 저장소 루트 기준.
 7. 실모델·실 LangSmith·실 NemoClaw 경로는 **이 환경에서 검증하지 못했다**(`ScriptedChatModel`/`FakeSandboxRunner` 로만 검증). 해당 코드는 `-m integration|langsmith|nemoclaw` 마커로 분리.
-8. DeprecationWarning 180개(create_react_agent)는 C15 에서 해소.
+8. C15 작업 브랜치 `13-v1-backend`에서 `AgentBackend`와 v1 구현 추가. `ORCHESTRA_AGENT_BACKEND=v1` 또는 빌더 `backend="v1"`로 선택하며 실무자·팀장 모두 create_agent 사용. 기존 prebuilt(기본) 및 레거시 비계층형 경로에는 경고가 남는다. 기본 5개 시나리오의 툴 순서·승인·최종 답변 parity와 비동기 handoff를 검증하며 실모델은 미검증.
 
 ## 5. PR 규칙
 AGENTS.md 의 PR 본문 템플릿을 쓴다. 작업 브랜치는 `04-…` 부터 이어서 번호를 붙인다(`03-orchestra-core` 가 이번 코어 구현).
