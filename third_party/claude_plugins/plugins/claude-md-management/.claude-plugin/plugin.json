@@ -1,0 +1,9 @@
+{
+  "name": "project-md-management",
+  "description": "Tools to maintain and improve CLAUDE.md files - audit quality, capture session learnings, and keep project memory current. Redistribution change: renamed from claude-md-management to comply with third-party marketplace naming rules.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+  }
+}

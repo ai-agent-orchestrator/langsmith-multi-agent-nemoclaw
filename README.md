@@ -41,6 +41,22 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 
 ## What is implemented
 
+Third-party snapshots are pinned in `third_party/LOCK.json` with per-file SHA-256
+hashes. Run `python scripts/sync_third_party.py --check` without network access to
+check integrity. To update a snapshot, use only this script:
+
+```bash
+python scripts/sync_third_party.py --component claude_plugins --source /path/to/claude-10-plugin-for-multi-agent --commit <40-character-sha>
+python scripts/sync_third_party.py --component multi_agent_module_lib --source /path/to/multi-agent-module-lib --commit <40-character-sha>
+pytest -q tests/third_party
+```
+
+`--source` also accepts the component's allowlisted HTTPS Git URL. Source trees
+are never modified; selected Git blobs are copied unchanged. See
+`third_party/NOTICE.md`: plugin Apache licenses are retained, while the pinned
+module-lib examples have no upstream LICENSE and need license clarification.
+Vendored hooks are catalog data and are never executed during synchronization.
+
 ```
 orchestra/                    domain-agnostic core
   specs.py  org.py            declarative OrgSpec, validation, automatic fan-out splitting (≤5 options per lead)
