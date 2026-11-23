@@ -57,6 +57,27 @@ are never modified; selected Git blobs are copied unchanged. See
 module-lib examples have no upstream LICENSE and need license clarification.
 Vendored hooks are catalog data and are never executed during synchronization.
 
+Inspect the read-only plugin catalog without LLMs or external services:
+
+```bash
+python -m orchestra.catalog list
+python -m orchestra.catalog show pr-review-toolkit/code-reviewer
+python -m orchestra.catalog validate
+```
+
+The pinned snapshot contains 14 plugins, 16 original agents, 12 skills and 12
+commands. Plugin directory names define stable namespaces even when the manifest
+uses a renamed alias. `CLAUDE_PLUGINS_DIR` or `--root` selects the input directory.
+The original `silent-failure-hunter.md` has invalid YAML; validation reports its
+legacy-parser fallback as a warning. Hooks and declared tool names are metadata.
+No plugin commands, hooks, file writes or shell tools are executed by this catalog.
+
+`SkillLoader.index()` exposes only skill names and descriptions. `make_skill_tools`
+provides READ-only `load_skill(name)` and `load_skill_reference(name, file)` tools
+for registered files. Responses pass through PII/PCI masking and are capped at
+`ORCHESTRA_SKILL_MAX_CHARS` (default and hard ceiling: 20000); long responses
+include a contents summary and prefix. References cannot select arbitrary files.
+
 ```
 orchestra/                    domain-agnostic core
   specs.py  org.py            declarative OrgSpec, validation, automatic fan-out splitting (≤5 options per lead)
