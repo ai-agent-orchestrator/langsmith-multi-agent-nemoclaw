@@ -256,3 +256,15 @@ amount, expiry and request/thread ID with a full SHA-256 key. Set
 payloads preserve the original deadline across interrupt re-execution. The ledger
 atomically claims the grant before execution. Signature fields are reserved only;
 no signing, persistence, or hash-chain audit was added.
+
+### Delegation capabilities (C18)
+
+`TeamSpec.capabilities` accepts optional `tools`, `domains`, and `sandboxes` lists.
+An explicit list is an upper bound: every descendant grant must fit inside it.
+Omitted dimensions derive from the subtree's actual grants; they are not wildcards.
+Empty lists grant nothing. Agent tools remain restricted to `AgentSpec.tools`.
+After domain resolution, sandbox ownership comes from registered pack metadata;
+foreign-domain sandbox tools and unknown grants fail closed before graph construction.
+Generated fanout leads inherit the same ancestor bounds. Host-defined agents without
+pack metadata have no domain or sandbox authority. These checks validate graph
+configuration; OS sandbox startup/policy attestation remains the separate runner work.
