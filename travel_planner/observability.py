@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import os
-import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
@@ -19,24 +18,15 @@ from typing import Any, Iterator, Optional
 from langsmith import Client, traceable, tracing_context
 from langsmith.anonymizer import create_anonymizer
 
+from orchestra.filters.builtin.pii_mask import LEGACY_MASK_RULES as MASK_RULES
+from orchestra.filters.builtin.request_gate import BLOCK_RULES
+
 MODES = ("off", "masked", "closed")
 
 # 구조별 재귀 한도: 계층형은 호출 단계가 깊으므로 더 크게 둔다.
 RECURSION_LIMITS = {"supervisor": 25, "handoff": 25, "hybrid": 30, "hierarchical": 40}
 
 # ---------------------------------------------------------------- 마스킹
-MASK_RULES = [
-    {"pattern": re.compile(r"\d{6}-[1-4]\d{6}"), "replace": "[REDACTED_ID]"},
-    {"pattern": re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{4}\b"), "replace": "[REDACTED_CARD]"},
-    {"pattern": re.compile(r"\b01[016789]-?\d{3,4}-?\d{4}\b"), "replace": "[REDACTED_PHONE]"},
-    {"pattern": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "replace": "[REDACTED_EMAIL]"},
-    {"pattern": re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "replace": "[REDACTED_KEY]"},
-    {
-        "pattern": re.compile(r"(?i)((?:password|passwd|api[_-]?key|secret|비밀번호)\s*[:=]\s*)\S+"),
-        "replace": r"\1[REDACTED_SECRET]",
-    },
-]
-
 # 중첩 dict/list 구조를 유지한 채 문자열 노드만 치환한다.
 # (str(data) 전체를 {"masked_payload": ...} 로 바꾸면 트레이스 구조가 망가진다.)
 _anonymize = create_anonymizer(MASK_RULES)
@@ -157,21 +147,6 @@ def apply_guards(app: Any, *, step_timeout: Optional[float] = 60.0) -> Any:
 class GateResult:
     blocked: bool
     reason: str = ""
-
-
-_PII = r"(주민\s?(?:등록)?번호|계좌\s?번호|카드\s?번호|비밀번호|신용카드)"
-_BULK = r"(전체|모든|전부|덤프|테이블|dump|select\s+\*)"
-BLOCK_RULES = [
-    ("bulk_pii_request", re.compile(rf"(?s)(?:{_BULK}.*{_PII}|{_PII}.*{_BULK})", re.I)),
-    (
-        "prompt_injection",
-        re.compile(
-            r"(이전|위의?)\s*(지시|명령|프롬프트).{0,10}(무시|잊)|ignore\s+(all\s+)?(previous|prior)\s+instructions|system\s*prompt",
-            re.I,
-        ),
-    ),
-    ("secret_exfiltration", re.compile(r"(api\s*key|api\s*키|토큰|secret).{0,10}(알려|출력|보여|print|show)", re.I)),
-]
 
 
 def security_gate(question: str) -> GateResult:

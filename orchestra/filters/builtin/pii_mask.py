@@ -19,6 +19,13 @@ MASK_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)((?:password|passwd|api[_-]?key|secret|비밀번호)\s*[:=]\s*)\S+"), r"\1[REDACTED_SECRET]"),
 ]
 
+# The legacy SDK anonymizer expects dictionaries and predates space-separated PCI/CVC masking.
+LEGACY_MASK_RULES: list[dict[str, Any]] = [
+    {"pattern": re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{4}\b") if rep == "[REDACTED_CARD]" else pat,
+     "replace": rep}
+    for pat, rep in MASK_RULES if rep != "[REDACTED_CVC]"
+]
+
 
 def mask_text(text: str) -> str:
     for pat, rep in MASK_RULES:
