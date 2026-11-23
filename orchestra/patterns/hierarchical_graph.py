@@ -84,16 +84,24 @@ def build_hierarchical_app(
         org = load_org(org)
     if isinstance(model_factory, BaseChatModel):
         model_factory = ConstantModelFactory(model_factory)
-    services = services if services is not None else {}
+    services = services if services is not None else (runtime.services if runtime is not None else {})
+    if runtime is not None:
+        for name, value in runtime.services.items():
+            services.setdefault(name, value)
+        if services.get("ledger_store") is not runtime.ledger_store:
+            from ..ledger import LedgerConfigurationError
+
+            raise LedgerConfigurationError("runtime and service ledger stores must match")
+    rt = runtime or Runtime(org=org.name, services=services)
+    rt.org = org.name
+    rt.services = services
+    services["ledger_store"] = rt.ledger_store
 
     packs = build_packs(org.domains, services)
     res = resolve(org, packs)
     org = assert_valid(normalize_fanout(res.org))
     res.org = org
 
-    rt = runtime or Runtime(org=org.name, services=services)
-    rt.org = org.name
-    rt.services = services if not rt.services else rt.services
     chain = build_chain(res.filter_specs, res.filter_impls, rt.events)
     base = prompt_base or Path(__file__).resolve().parent.parent.parent
 

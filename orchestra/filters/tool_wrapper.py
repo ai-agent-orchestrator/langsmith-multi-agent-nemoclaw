@@ -9,12 +9,14 @@ from __future__ import annotations
 from typing import Any, Optional
 import os
 import math
+from contextlib import nullcontext
 
 from langchain_core.tools import BaseTool, StructuredTool
 
 from .. import hitl
 from ..runtime import Runtime
 from ..sandbox.base import ExecRequest
+from ..sandbox.fake import FakeSandboxRunner
 from ..specs import SideEffect, ToolSpec
 from ..taint import ToolTaintBlocked, current_thread, instruction_in, reject_labelled_instructions
 from .base import Action, FilterContext, Stage
@@ -104,7 +106,7 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
                               binding={"user_id": record.user_id, "amount": record.amount, "expires_at": record.expires_at,
                                        "request_id": record.request_id})
                 if not approved:
-                    rt.approvals.deny(key)
+                    rt.approvals.deny(key, binding=record)
                     return {"error": "approval_denied", "tool": tool.name}
                 if not rt.approvals.grant(record, now=rt.clock()):
                     return _blocked("approval_expired_or_replayed", "approval_binding", "pre_tool")
@@ -122,10 +124,14 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
         if spec.side_effect == SideEffect.COMMIT and not rt.approvals.is_granted(key, binding=record, now=rt.clock()):
             return _blocked("commit_without_approval", "tool_wrapper", "pre_tool")
 
-        if (pre.action == Action.REQUIRE_APPROVAL or spec.side_effect == SideEffect.COMMIT) and not rt.approvals.claim(record, now=rt.clock()):
-            return _blocked("approval_expired_or_consumed", "approval_binding", "pre_tool")
-        output = _execute(args, route_sandbox)
-        rt.approvals.consume(key)
+        store = rt.approvals.store
+        if store.persistent and spec.side_effect == SideEffect.COMMIT:
+            if tool.name not in rt.services.get("ledger_atomic_tools", set()) or (rt.sandbox is not None and not isinstance(rt.sandbox, FakeSandboxRunner)):
+                return _blocked("persistent_payment_transport_not_transactional", "approval_binding", "pre_tool")
+        with store.transaction() if store.persistent else nullcontext():
+            if (pre.action == Action.REQUIRE_APPROVAL or spec.side_effect == SideEffect.COMMIT) and not rt.approvals.claim(record, now=rt.clock()):
+                return _blocked("approval_expired_or_consumed", "approval_binding", "pre_tool")
+            output = _execute(args, route_sandbox)
         if isinstance(output, dict) and output.get("error") in ("sandbox_failed", "sandbox_unavailable"):
             return output
 
@@ -135,18 +141,19 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
             rt.events.add("blocked", by="tool_taint", stage="post_tool", reason="tool_instruction_blocked", tool=tool.name)
             output = {"error": "tool_instruction_blocked"}
         post = chain.run(_ctx(Stage.POST_TOOL, output), dedupe=f"{tool.name}:post")
+        approval_ref = {"approval_ref": store.token("approval-ref", key)} if store.persistent and spec.side_effect == SideEffect.COMMIT else {}
         if not tainted and instruction_in(post.payload):
             tainted = True
             rt.quarantined_threads.add(current_thread())
             rt.events.add("blocked", by="tool_taint", stage="post_tool", reason="tool_instruction_blocked", tool=tool.name)
         if tainted:
             labelled = {"source": "tool", "data": {"error": "tool_instruction_blocked"}}
-            rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled)
+            rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled, **approval_ref)
             return labelled
         if post.action == Action.BLOCK:
             return _blocked(post.reason, post.blocked_by, "post_tool")
         labelled = {"source": "tool", "data": post.payload}
-        rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled)
+        rt.events.add("tool", tool=tool.name, agent=agent, args=args, result=labelled, **approval_ref)
         return labelled
 
     def _execute(args: dict[str, Any], route_sandbox: bool) -> Any:

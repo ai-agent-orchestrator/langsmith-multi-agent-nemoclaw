@@ -314,3 +314,49 @@ and deduplication. Trace console text and JSON exports always pass through maski
 even with `--security-mode off`. Trace records whitelist diagnostic fields and omit
 approval bindings/full tool args. This option does not enable LangSmith transmission.
 Without it, the existing narrative/JSON shape and event capture behavior are retained.
+
+### Ledger persistence (C22)
+
+The default `LedgerStore` is isolated process memory and needs no key or file.
+For SQLite, set `ORCHESTRA_LEDGER=sqlite:///C:/private/orchestra/ledger.db`
+with an explicit path in an existing directory, and set
+`ORCHESTRA_LEDGER_HMAC_KEY` to a random secret of at least 32 UTF-8 bytes in the
+environment. Missing/short keys reject startup before opening the database.
+`ORCHESTRA_LEDGER_KEY_ID` is an optional public rotation label; when omitted,
+a non-secret HMAC-derived identifier is used. No default database path or secret
+is provided. Schema version 1 is recorded in SQLite and approval rows; unknown
+future versions fail closed. Tests create databases only under pytest `tmp_path`.
+
+The original C17 `ApprovalRecord` and canonical arguments stay in memory. SQLite
+stores a domain-separated, full-length HMAC-SHA256 binding over the entire original
+C17 tuple, a separate HMAC of the user, a key ID, expiry, consumption flag and
+masked display. Display omits argument/user/request contents and may show amount.
+Execution recomputes the HMAC from a valid transient record, including the original
+expiry and request ID; a new deadline never revives an old authorization. Expired
+records are invalid on read and `store.cleanup_expired(now)` deletes them.
+
+`ApprovalLedger`, `EventLog` and the local `MockPaymentProvider` share one store.
+`BEGIN IMMEDIATE` plus a conditional consume UPDATE prevents two connections from
+claiming the same grant. Consumption, mock payment state, and the keyed idempotency
+entry commit together. Failed mock-state writes roll back all three. Original
+arguments, unkeyed approval hashes, and raw binding payloads are omitted from
+persistent events. Payment safety evaluation correlates host-generated HMAC
+references after this redaction. A stable `EventLog(store=store, scope="app")`
+reloads masked events and deduplicates across instances; use separate scopes for
+independent runs. Default runtime scope is `runtime`.
+
+Key rotation: stop old writers, let outstanding approvals expire (or deny them),
+then deploy a new environment key/key ID together. New-key instances cannot consume
+or overwrite old-key approvals; retain their masked metadata as read-only until
+expiry, then clean it up. Old idempotency indexes are key-specific: do not blindly
+retry old requests across key epochs. Inspect recorded receipts and reconcile
+pending requests before enabling new work; no automatic re-keying or recovery of
+raw inputs is implemented. Keep old secrets out of the database and version control.
+
+One masked `append_event` hook is available for future signature/chain integration;
+its default is a no-op. No signature or hash chain is implemented. These guarantees
+cover the local mock/Fake path. SQLite COMMIT rejects nonparticipating payment
+providers and remote sandbox transports. Graph checkpoints, holds, model queues,
+and actual payment-provider effects are not made durable or transactionally coupled
+by this feature; full workflow restart/resume and real NemoClaw remain unverified.
+`Memory` mode retains C17 consumption on execution failure; only participating SQLite mock operations roll back authorization together with payment state.
