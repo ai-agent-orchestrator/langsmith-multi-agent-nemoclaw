@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "langsmith-multi-agent-nemoclaw"
+version = "0.1.0"
+description = "Hierarchical agents with security filters and sandbox policies"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1,<2",
+    "langgraph-supervisor>=0.0.31,<0.1",
+    "langchain-core>=1,<2",
+    "langchain-anthropic>=1,<2",
+    "langsmith>=0.4,<1",
+    "pydantic>=2,<3",
+    "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.17,<0.18", "mypy>=2.4,<3", "types-PyYAML>=6,<7"]
+langsmith = ["langsmith>=0.4,<1"]
+# NemoClaw/OpenShell and Claude are external CLIs, with no Python SDK required.
+nemoclaw = []
+claude-cli = []
+
+[tool.setuptools.packages.find]
+include = ["orchestra*", "domains*", "travel_planner*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = '-m "not integration and not langsmith and not nemoclaw" --strict-markers'
+markers = [
+    "integration: needs real external services",
+    "langsmith: needs real LangSmith",
+    "nemoclaw: needs real NemoClaw/OpenShell",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["third_party"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Preserve the original regression tests verbatim.
+"tests/test_*.py" = ["E702", "E731", "F401", "F841"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]

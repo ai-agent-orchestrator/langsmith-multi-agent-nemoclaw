@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Protocol
+from typing import Any, Mapping, Optional, Protocol
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -51,7 +51,7 @@ ALIAS_ENV = {"haiku": "ORCHESTRA_MODEL_HAIKU", "sonnet": "ORCHESTRA_MODEL_SONNET
              "opus": "ORCHESTRA_MODEL_OPUS", "local": "ORCHESTRA_MODEL_LOCAL"}
 
 
-def resolve_alias(alias: str, *, default: str = "sonnet", env: Optional[dict[str, str]] = None) -> str:
+def resolve_alias(alias: str, *, default: str = "sonnet", env: Optional[Mapping[str, str]] = None) -> str:
     """별칭 -> 모델 ID(환경변수). inherit 은 default 별칭으로. 설정이 없으면 명확한 오류."""
     env = env if env is not None else os.environ
     a = default if alias in ("", "inherit") else alias

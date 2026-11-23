@@ -56,7 +56,7 @@ def collect(tool_specs: Iterable[ToolSpec]) -> dict[str, dict[str, EgressRule]]:
     return out
 
 
-def _doc(name: str, description: str, policies: dict[str, dict], binary: str) -> dict[str, Any]:
+def _doc(name: str, description: str, policies: dict[str, list[EgressRule]], binary: str) -> dict[str, Any]:
     return {
         "preset": {"name": name, "description": description},
         "network_policies": {

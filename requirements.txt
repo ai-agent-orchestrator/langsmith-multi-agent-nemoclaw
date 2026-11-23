@@ -1,8 +1,2 @@
-langgraph
-langgraph-supervisor
-langchain-core
-langchain-anthropic
-langsmith
-pydantic>=2
-pyyaml
-pytest
+# Compatibility install path; versions live in pyproject.toml.
+-e .[dev]

@@ -80,8 +80,8 @@ def resolve(org: OrgSpec, packs: list[DomainPack]) -> Resolved:
     specs += org.filters  # 조직 공통 필터가 마지막 (같은 name 이면 덮어씀)
     full = org.model_copy(update={"agents": {**org.agents, **agents}, "teams": teams})
     for a in full.agents.values():
-        for t in a.tools:
-            if t not in tools:
-                raise ValueError(f"agent {a.id}: unknown tool {t!r}")
+        for tool_name in a.tools:
+            if tool_name not in tools:
+                raise ValueError(f"agent {a.id}: unknown tool {tool_name!r}")
     assert_valid(full)
     return Resolved(full, tools, specs, impls, tool_domain, agent_domain)

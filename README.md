@@ -21,6 +21,14 @@ Real compiled graphs run end to end from scenarios **without any LLM, network, o
 
 ## Quick start
 
+Use Python 3.11+ and install with `pip install -e ".[dev]"`.
+`requirements.txt` delegates to this same dependency definition. The `langsmith`
+extra names the SDK already needed by the compatibility API; `nemoclaw` and
+`claude-cli` are dependency-free extras for separately installed external CLIs.
+They do not install or verify those CLIs. Examples currently use repository data,
+so run them from this checkout. Tests exclude real-service markers by default;
+opt in explicitly with `pytest -m integration`, `-m langsmith`, or `-m nemoclaw`.
+
 ```bash
 pip install -r requirements.txt
 python -m pytest -q tests                                   # 60 passed

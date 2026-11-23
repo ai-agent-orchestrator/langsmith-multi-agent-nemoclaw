@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
@@ -106,7 +106,7 @@ def build_hierarchical_app(
         members = [built[m] for m in t.members]
         model = model_factory(role=t.name, alias=t.model, sensitivity="public", kind="supervisor")
         sup = create_supervisor(
-            members, model=model, prompt=read_prompt(t.prompt, base) or None, supervisor_name=t.name,
+            cast(Any, members), model=model, prompt=read_prompt(t.prompt, base) or None, supervisor_name=t.name,
             output_mode=t.output_mode, tools=[make_report(t.name, rt), make_escalate(t.name, rt)],
         )
         # langgraph_supervisor 는 모든 멤버에 고정 엣지 member→supervisor 를 건다. handoff 를 쓰는 멤버는

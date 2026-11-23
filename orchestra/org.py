@@ -40,8 +40,8 @@ def validate_org(org: OrgSpec) -> list[str]:
         errs.append(f"root {org.root!r} is not a team")
 
     names: dict[str, str] = {}
-    for t in org.teams:
-        names[t] = f"team:{t}"
+    for team_name in org.teams:
+        names[team_name] = f"team:{team_name}"
     for aid, a in org.agents.items():
         if aid != a.id:
             errs.append(f"agent key {aid!r} != id {a.id!r}")
@@ -75,9 +75,9 @@ def validate_org(org: OrgSpec) -> list[str]:
 
     if org.root in org.teams:
         walk(org.root, ())
-        for t in org.teams:
-            if t not in seen:
-                errs.append(f"team {t!r} unreachable from root")
+        for team_name in org.teams:
+            if team_name not in seen:
+                errs.append(f"team {team_name!r} unreachable from root")
 
     # handoff 는 같은 팀 형제끼리만 (승인·감사 경계 유지)
     for aid, a in org.agents.items():

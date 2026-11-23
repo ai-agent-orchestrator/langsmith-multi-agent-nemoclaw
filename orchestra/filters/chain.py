@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 from ..runtime import EventLog
 from ..specs import FilterSpec
-from .base import Action, Filter, FilterContext, FilterDecision, Stage
+from .base import Action, Filter, FilterContext, FilterDecision
 
 
 @dataclass
@@ -78,7 +78,7 @@ class FilterChain:
             if d.feedback:
                 res.feedback.update(d.feedback)
                 if self.events:
-                    self.events.add("feedback", **d.feedback)
+                    self.events.add("feedback", **cast(dict[str, Any], d.feedback))
             res.trail.append(TrailEntry(spec.name, d.action, d.reason))
             self._emit(ctx, spec.name, d, dedupe)
             if d.action == Action.BLOCK:

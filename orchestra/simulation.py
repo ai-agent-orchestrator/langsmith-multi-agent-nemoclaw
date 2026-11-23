@@ -119,9 +119,9 @@ def check_expect(res: SimResult) -> list[str]:
         if captured != flags["payment_captured"]:
             errs.append(f"payment_captured: want {flags['payment_captured']} got {captured}")
     if "blocked_by" in exp:
-        got = [e.data.get("by") for e in ev.of("blocked")]
-        if exp["blocked_by"] not in got:
-            errs.append(f"blocked_by: want {exp['blocked_by']} in {got}")
+        blocked_by = [e.data.get("by") for e in ev.of("blocked")]
+        if exp["blocked_by"] not in blocked_by:
+            errs.append(f"blocked_by: want {exp['blocked_by']} in {blocked_by}")
     if "sandbox_denied" in exp:
         got = [h for e in ev.of("sandbox") for h in (e.data.get("egress_denied") or [])]
         if bool(got) != exp["sandbox_denied"]:
