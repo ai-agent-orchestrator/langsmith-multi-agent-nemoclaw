@@ -1,0 +1,44 @@
+flowchart TB
+  U(["요청: 이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해 줘"]):::result
+  subgraph S1["① 총괄 · 팀 분배"]
+    D1["Travel Director<br/>일정 기획 + 예약/결제 필요<br/>→ planning_lead 먼저"]:::architecture
+  end
+  subgraph S2["② 일정 기획 팀"]
+    direction LR
+    P["planning_lead"]:::control
+    W["weather_agent<br/>제주 11/21 강수 70%"]:::worker
+    R["restaurant_agent<br/>실내만: 고기국수 · 흑돼지"]:::worker
+  end
+  subgraph S3["③ 총괄 · 다음 단계 지시"]
+    D2["Travel Director<br/>코스 완성 확인<br/>→ booking_lead 호출"]:::architecture
+  end
+  subgraph S4["④ 예약/결제 팀"]
+    direction LR
+    B["booking_lead"]:::control
+    H["hotel_agent<br/>검색 → 재고 확인 → 예약<br/>제주시내 호텔 1박 2명"]:::worker
+  end
+  subgraph S5["⑤ 최종 완료"]
+    D3["Travel Director<br/>두 팀 보고 종합"]:::architecture
+  end
+  OUT(["코스: 고기국수 → 흑돼지<br/>숙소: 제주시내 호텔 예약 confirmed 180,000원"]):::result
+  P -->|"호출"| W
+  W -->|"비 70%"| P
+  P -->|"실내 지시"| R
+  R -->|"맛집 2곳"| P
+  B -->|"호출"| H
+  H -->|"confirmed"| B
+  U --> S1
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> S5
+  S5 --> OUT
+  classDef architecture fill:#342a4c,stroke:#b39ae5,color:#e6edf6
+  classDef control fill:#42351e,stroke:#ddb965,color:#e6edf6
+  classDef worker fill:#4b2b22,stroke:#d39a6a,stroke-width:3px,color:#e6edf6
+  classDef result fill:#1a2837,stroke:#78d5ef,color:#e6edf6
+  style S1 fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style S2 fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style S3 fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style S4 fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style S5 fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb

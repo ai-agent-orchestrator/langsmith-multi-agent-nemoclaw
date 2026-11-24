@@ -1,0 +1,45 @@
+flowchart TB
+  U(["사용자 요청"]):::result
+  subgraph TOP["TOP · 총괄"]
+    D["Travel Director<br/>선택지 3개: 팀장만 호출"]:::architecture
+  end
+  subgraph PLAN["일정 기획 팀"]
+    direction TB
+    P["planning_lead<br/>일정 기획 팀장"]:::control
+    W["날씨 · 툴 2"]:::worker
+    R["맛집 · 툴 3"]:::worker
+    A["관광지 · 툴 2"]:::worker
+    P --> W
+    P --> R
+    P --> A
+  end
+  subgraph BOOK["예약/결제 팀"]
+    direction TB
+    B["booking_lead<br/>예약/결제 팀장"]:::control
+    F["항공 · 툴 3"]:::worker
+    H["숙소 · 툴 3"]:::worker
+    C["렌터카 · 툴 2"]:::worker
+    B --> F
+    B --> H
+    B --> C
+  end
+  subgraph SUP["현지 지원 팀"]
+    direction TB
+    S["support_lead<br/>현지 지원 팀장"]:::control
+    T["번역 · 툴 1"]:::worker
+    E["긴급연락 · 툴 1"]:::worker
+    S --> T
+    S --> E
+  end
+  U --> TOP
+  TOP --> PLAN
+  TOP --> BOOK
+  TOP --> SUP
+  classDef architecture fill:#342a4c,stroke:#b39ae5,color:#e6edf6
+  classDef control fill:#42351e,stroke:#ddb965,color:#e6edf6
+  classDef worker fill:#4b2b22,stroke:#d39a6a,stroke-width:3px,color:#e6edf6
+  classDef result fill:#1a2837,stroke:#78d5ef,color:#e6edf6
+  style TOP fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style PLAN fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style BOOK fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style SUP fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb

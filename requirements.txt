@@ -1,0 +1,2 @@
+# Compatibility install path; versions live in pyproject.toml.
+-e .[dev]

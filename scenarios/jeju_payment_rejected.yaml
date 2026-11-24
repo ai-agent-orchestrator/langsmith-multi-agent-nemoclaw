@@ -1,0 +1,134 @@
+id: jeju_payment_rejected
+title: 사용자가 결제를 거절 → capture 미실행, 확정 없음
+org: orgs/travel_payment.yaml
+request: 이번 주말 제주도 맛집 투어 짜주고 호텔도 예약해서 결제까지 해줘
+context:
+  today: '2026-11-22'
+  guests: 2
+approve:
+- false
+script:
+  travel_director:
+  - tool_calls:
+    - name: transfer_to_planning_lead
+    content: 일정 기획 필요 → planning_lead 먼저 호출
+  - tool_calls:
+    - name: transfer_to_booking_lead
+    content: 코스 확정 확인 → booking_lead 에 숙소 hold 지시
+  - tool_calls:
+    - name: transfer_to_payment_lead
+    content: hold 확보 확인 → payment_lead 에 결제 위임
+  - content: 결제가 취소되었습니다. 숙소 hold(180,000원)는 15분 뒤 자동 만료되며 예약은 확정되지 않았습니다.
+  planning_lead:
+  - tool_calls:
+    - name: transfer_to_weather_agent
+    content: weather_agent 호출
+  - tool_calls:
+    - name: report_to_parent
+      args:
+        status: done
+        summary: 강수 70% → 실내 코스 확정
+        artifacts:
+          course:
+          - 제주 고기국수 맛집
+          - 제주 흑돼지 구이집
+  - content: 코스 확정 → 총괄에 보고
+  weather_agent:
+  - tool_calls:
+    - name: get_weather
+      args:
+        city: 제주
+        date: '2026-11-28'
+  - tool_calls:
+    - name: get_hourly_forecast
+      args:
+        city: 제주
+        date: '2026-11-28'
+  - tool_calls:
+    - name: transfer_to_restaurant_agent
+    content: 강수확률 70% → 실내 위주로 restaurant_agent 에 직접 이양
+  restaurant_agent:
+  - tool_calls:
+    - name: search_restaurants
+      args:
+        city: 제주
+        indoor_only: true
+  - content: '실내 맛집 2곳: 제주 고기국수 맛집, 제주 흑돼지 구이집'
+  booking_lead:
+  - tool_calls:
+    - name: transfer_to_hotel_agent
+    content: hotel_agent 호출
+  - tool_calls:
+    - name: report_to_parent
+      args:
+        status: done
+        summary: 객실 hold 완료
+        artifacts:
+          hold_ids:
+          - hold_0001
+          amount: 180000
+  - content: hold_0001 (180,000원) 확보 → 총괄에 보고
+  hotel_agent:
+  - tool_calls:
+    - name: search_hotels
+      args:
+        city: 제주
+        near: 제주시내
+        checkin: '2026-11-28'
+        nights: 1
+  - tool_calls:
+    - name: check_room
+      args:
+        hotel_id: h1
+        checkin: '2026-11-28'
+        nights: 1
+  - tool_calls:
+    - name: hold_room
+      args:
+        hotel_id: h1
+        guests: 2
+        checkin: '2026-11-28'
+        nights: 1
+  - content: 객실 임시 점유 hold_0001, 180,000원 (15분 내 결제 필요)
+  payment_lead:
+  - tool_calls:
+    - name: transfer_to_checkout_agent
+  - tool_calls:
+    - name: report_to_parent
+      args:
+        status: blocked
+        summary: 사용자 결제 거절
+        issues:
+        - approval_denied
+  - content: 결제 거절 → 총괄에 보고
+  checkout_agent:
+  - tool_calls:
+    - name: create_payment_intent
+      args:
+        hold_ids:
+        - hold_0001
+  - tool_calls:
+    - name: capture_payment
+      args:
+        intent_id: pi_0001
+  - content: 사용자가 결제를 거절해 capture 하지 않았습니다. hold 는 15분 후 자동 만료됩니다.
+expect:
+  agents_in_order:
+  - travel_director
+  - planning_lead
+  - booking_lead
+  - hotel_agent
+  - payment_lead
+  - checkout_agent
+  tools_in_order:
+  - get_weather
+  - get_hourly_forecast
+  - search_restaurants
+  - search_hotels
+  - check_room
+  - hold_room
+  - create_payment_intent
+  interrupts: 1
+  flags:
+    blocked: false
+    payment_captured: false

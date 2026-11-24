@@ -1,0 +1,33 @@
+flowchart TB
+  U(["사용자 요청"]):::result
+  subgraph SVC["TRAVELSERVICE.ASK"]
+    direction TB
+    G{"security_gate<br/>대량 PII · 인젝션 · 키 유출"}:::guard
+    BL["차단 응답<br/>(에이전트 미호출)"]:::stop
+    APP["LangGraph app<br/>supervisor · handoff · hybrid · hierarchical<br/>run_config: tags · metadata · recursion_limit"]:::worker
+    G -->|"차단"| BL
+    G -->|"통과"| APP
+  end
+  subgraph LS["LANGSMITH 전송 · TRAVEL_SECURITY_MODE"]
+    direction LR
+    M1["off<br/>그대로 전송"]:::python
+    M2["masked<br/>로컬 치환 후 전송"]:::guard
+    M3["closed<br/>전송 0 · 폐쇄망"]:::stop
+  end
+  subgraph MON["모니터링 · 평가"]
+    direction LR
+    MO["monitoring.py<br/>노드별 토큰 · P95/P99 · 에러율"]:::control
+    EV["eval_security_local.py<br/>upload_results=False"]:::control
+  end
+  U --> SVC
+  SVC --> LS
+  LS --> MON
+  classDef control fill:#42351e,stroke:#ddb965,color:#e6edf6
+  classDef worker fill:#4b2b22,stroke:#d39a6a,stroke-width:3px,color:#e6edf6
+  classDef result fill:#1a2837,stroke:#78d5ef,color:#e6edf6
+  classDef guard fill:#263c17,stroke:#91cc45,stroke-width:3px,color:#e6edf6
+  classDef stop fill:#40282d,stroke:#c58b92,color:#e6edf6
+  classDef python fill:#26313d,stroke:#a1afbf,color:#e6edf6
+  style SVC fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style LS fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style MON fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb

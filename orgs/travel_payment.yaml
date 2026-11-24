@@ -1,0 +1,25 @@
+name: travel_payment
+domains: [travel, payment]
+root: travel_director
+teams:
+  travel_director:
+    prompt: "file:domains/travel/prompts/director.md"
+    members: [planning_lead, booking_lead, payment_lead, support_lead]
+    model: sonnet
+  planning_lead:
+    prompt: "file:domains/travel/prompts/planning_lead.md"
+    members: [travel/weather_agent, travel/restaurant_agent, travel/attraction_agent]
+  booking_lead:
+    prompt: "file:domains/travel/prompts/booking_lead.md"
+    members: [travel/flight_agent, travel/hotel_agent, travel/car_agent]
+  payment_lead:
+    prompt: "file:domains/payment/prompts/payment_lead.md"
+    members: [payment/checkout_agent, payment/refund_agent]
+  support_lead:
+    prompt: "file:domains/travel/prompts/support_lead.md"
+    members: [travel/translation_agent, travel/emergency_agent]
+filters:
+  - {name: request_gate, stages: [pre_request], order: 10}
+  - {name: side_effect_policy, stages: [pre_tool], order: 50}
+  - {name: pii_mask, stages: [post_tool, pre_response], order: 90}
+  - {name: budget, stages: [pre_tool], order: 5, params: {max_tool_calls: 40}}

@@ -1,0 +1,26 @@
+preset:
+  name: orchestra-payments-egress
+  description: Egress for orchestra-payments (generated)
+network_policies:
+  orchestra_payments_payments_example_invalid_443:
+    name: orchestra_payments_payments_example_invalid_443
+    endpoints:
+    - host: payments.example.invalid
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      rules:
+      - allow:
+          method: POST
+          path: /v1/payment_intents
+      - allow:
+          method: POST
+          path: /v1/payment_intents/**
+      - allow:
+          method: POST
+          path: /v1/refunds
+      - allow:
+          method: GET
+          path: /v1/payment_intents/**
+    binaries:
+    - path: /opt/orchestra/venv/bin/python3*
