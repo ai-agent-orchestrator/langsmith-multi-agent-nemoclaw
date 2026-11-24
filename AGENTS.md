@@ -1,6 +1,6 @@
 # AGENTS.md — Codex 작업 규칙
 
-> **먼저 `docs/CODEX_HANDOFF.md` 를 읽는다.** 코어(필터·결제·계층형 그래프·정책 생성)는 이미 구현·테스트되어 있고, 남은 작업과 설계 이탈 목록이 거기 있다. NemoClaw 는 `docs/NEMOCLAW_ROADMAP.md`.
+> **먼저 `docs/CODEX_HANDOFF_NEXT.md` (최신 남은 작업)를 읽는다. `CODEX_HANDOFF.md` 는 이전 기준 참고용.** 코어(필터·결제·계층형 그래프·정책 생성)는 이미 구현·테스트되어 있고, 남은 작업과 설계 이탈 목록이 거기 있다. NemoClaw 는 `docs/NEMOCLAW_ROADMAP.md`.
 
 이 저장소는 `docs/DESIGN.md`를 구현한다. 설계서가 단일 기준이다. 설계서와 코드가 충돌하면 코드를 설계서에 맞추고, 설계서가 틀렸다고 판단되면 PR 본문의 "설계 이탈" 섹션에 이유를 적는다.
 
@@ -10,7 +10,7 @@
 - `[VERIFY]` 표시가 있는 API/CLI는 구현 전에 설치된 버전에서 확인한다(`pip show`, `python -c "import ...; help(...)"`, `<bin> --help`). 확인 결과를 PR 본문 "검증 기록" 표에 남긴다. 확인할 수 없으면 기능 탐지 + 우아한 강등으로 구현한다.
 
 ## 절대 규칙
-1. 기존 테스트 60개(`tests/test_observability.py` 14 + 코어 46)는 수정하지 않고 계속 통과시킨다. 코어 동작을 바꿔야 하면 PR 본문에 이유를 적는다.
+1. 기존 테스트 60개(`tests/test_observability.py` 14 + 코어 46)는 수정하지 않고(현재 전체 193개) 계속 통과시킨다. 코어 동작을 바꿔야 하면 PR 본문에 이유를 적는다.
 2. 기존 import 경로(`travel_planner.*`, `TravelService`, `build_*_app(model)`)를 깨지 않는다. 옮긴 코드는 shim에서 re-export한다.
 3. `orchestra/` 코어는 `domains/*`를 import하지 않는다. (`tests/test_domain_swap.py`가 검사)
 4. 모델 ID, LangSmith 엔드포인트, NemoClaw 추론 URL, 결제 호스트를 코드에 하드코딩하지 않는다. 전부 Settings/env.

@@ -1,3 +1,5 @@
+> ⚠️ **부분 대체됨** — 최신 남은 작업은 [`CODEX_HANDOFF_NEXT.md`](CODEX_HANDOFF_NEXT.md). 이 문서는 C번호/설계 이탈 참고용.
+
 # Codex 인수인계 — 무엇이 끝났고, 무엇을 하면 되는가
 
 > 기준일 2026-11-22 · 기준 커밋: 이 문서가 들어간 커밋 · 설계 원본: [`DESIGN.md`](DESIGN.md) · 작업 규칙: [`../AGENTS.md`](../AGENTS.md)
