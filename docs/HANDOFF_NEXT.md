@@ -55,7 +55,7 @@ python scripts/sync_third_party.py --check
 ```
 작은 단위로 나눠 커밋한다(예: providers+loop_adapter → ExecRequest.agent → 승인 서명 → 감사 훅·kill switch → concert_demo·pr_review 시나리오 → cli_adapter).
 
-## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로 (실설치 워커 왕복 확인, 읽기 툴 구현, 실설치 툴 실행 확인 남음)
+## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로 (실설치 워커 왕복·읽기 툴 실행 확인, 파일 올리기·차단·부하 확인 남음)
 
 > **오프라인 구현 완료 (2026-11-27).** 아래 "방향"의 `nemoclaw exec` 상시 실행은 소스 확인 결과 동작하지 않아(입력을 EOF 까지 모음, 실행 내내 잠금 보유) **OpenShell SSH**로 바꿨다. 근거와 실설치에서 남은 확인은 [`NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md) §3.1.
 > - 구현: `orchestra/sandbox/nemoclaw/persistent.py`, `ssh_launcher.py`, 워커 `--serve`. 기본값은 기존 1회 실행이며 `NEMOCLAW_TRANSPORT=ssh_stream`으로 켠다. 1회 실행 명령에는 `--stdin`을 추가했다.
@@ -66,7 +66,8 @@ python scripts/sync_third_party.py --check
 > - `-m nemoclaw` 실연동 pytest 통과, 적용 정책 확인(REALITY §3.2).
 > - 샌드박스 툴(오프라인, 2026-11-27): 읽기 전용 `fs_read`·`fs_list`·`fs_glob`·`fs_grep`(`orchestra/catalog/tool_mapping.py`, DESIGN §7.3)을 `claude_dev` 팩의 `code_explorer`에게만 주고 `orchestra-code`에서 실행한다. 러너 → 서명 → 실제 워커 프로세스 → 필터 왕복을 `tests/test_workspace_sandbox.py`가 확인한다.
 > - 설계와 다른 점: `fs_grep`은 정규식이 아니라 문자열 검색(워커가 실행 중인 툴을 중단할 수 없어 폭주하는 정규식을 막을 수 없음), `nb_read`와 쓰기·셸·웹 툴 없음, `code_explorer`는 아직 어느 팀에도 넣지 않음.
-> - 남음: 이미지를 다시 만들어 실설치에서 툴 실행 확인(REALITY §3.3, 샌드박스 삭제·재생성은 사용자 승인). 워크스페이스에 파일을 올리는 경로 결정. 네트워크 차단·재시작·부하 확인, 샌드박스 CPU·메모리 상한.
+> - 실설치 툴 실행(2026-11-27, 사용자 실행): 샌드박스를 다시 만들어 `fs_list` 성공·워크스페이스 밖 경로 거부 확인(REALITY §3.3). 그 이미지에는 4단계 병합 코드가 없었다.
+> - 남음: 워크스페이스에 파일을 올리는 경로 결정. 네트워크 차단·재시작·부하 확인, 샌드박스 CPU·메모리 상한.
 > - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).
