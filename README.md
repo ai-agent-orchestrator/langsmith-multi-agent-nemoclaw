@@ -267,8 +267,10 @@ amount, expiry and request/thread ID with a full SHA-256 key. Set
 `user_id=` to both OrchestraService.ask and resume. Legacy calls default to
 `anonymous`; this is compatibility, not authentication. Checkpointed approval
 payloads preserve the original deadline across interrupt re-execution. The ledger
-atomically claims the grant before execution. Signature fields are reserved only;
-no signing, persistence, or hash-chain audit was added.
+atomically claims the grant before execution. An approved binding is signed with
+HMAC-SHA256 by the ledger store (a random per-instance key in memory mode, the
+ledger key with SQLite); a stored row without a valid signature is rejected, so
+approvals recorded before signing existed must be approved again.
 
 ### Delegation capabilities (C18)
 

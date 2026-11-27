@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import secrets
 import sqlite3
 import threading
 from typing import Any, Callable, Iterator, Protocol, ContextManager
@@ -15,6 +16,7 @@ from typing import Any, Callable, Iterator, Protocol, ContextManager
 from .hitl import ApprovalRecord
 
 SCHEMA_VERSION = 1
+SIGNATURE_ALGORITHM = "hmac-sha256"
 
 
 def mask_any(value: Any) -> Any:
@@ -36,6 +38,7 @@ class LedgerStore(Protocol):
 
     def transaction(self) -> ContextManager[None]: ...
     def token(self, domain: str, value: str) -> str: ...
+    def sign(self, record: ApprovalRecord) -> ApprovalRecord: ...
     def grant(self, record: ApprovalRecord, now: float) -> bool: ...
     def authorized(self, record: ApprovalRecord, now: float) -> bool: ...
     def claim(self, record: ApprovalRecord, now: float) -> bool: ...
@@ -63,9 +66,11 @@ class MemoryLedgerStore:
     """Default isolated process memory, with reentrant transactions and rollback."""
 
     persistent = False
-    key_id = "memory"
 
     def __init__(self, *, event_hook: Callable[[dict], None] | None = None):
+        # 프로세스·인스턴스마다 새 키: 다른 장부에서 만든 서명은 통하지 않는다.
+        self._signing_key = secrets.token_bytes(32)
+        self.key_id = "memory-" + secrets.token_hex(8)
         self._lock = threading.RLock()
         self._approvals: dict[str, dict] = {}
         self._states: dict[str, dict] = {}
@@ -90,20 +95,49 @@ class MemoryLedgerStore:
     def _binding(self, record: ApprovalRecord) -> str:
         return self.token("approval", _canonical(record))
 
+    def _mac(self, domain: str, value: str) -> str:
+        return hmac.new(self._signing_key, (domain + "\0" + value).encode(), hashlib.sha256).hexdigest()
+
+    def _approval_signature(self, record: ApprovalRecord) -> str:
+        """Sign the full bound tuple together with the decision and key identity."""
+        return self._mac("approval-signature", json.dumps([_canonical(record), True, self.key_id], ensure_ascii=False))
+
+    def sign(self, record: ApprovalRecord) -> ApprovalRecord:
+        """Return the decided, signed form of a binding."""
+        return record.model_copy(update={"decided": True, "signature": self._approval_signature(record),
+                                         "signature_algorithm": SIGNATURE_ALGORITHM, "key_id": self.key_id})
+
+    def _verified(self, record: ApprovalRecord, stored: object) -> bool:
+        """The stored signature must verify; a record that claims a signature must carry exactly that one.
+
+        Unsigned bindings are still accepted as lookups, because tool execution rebuilds them from live arguments.
+        """
+        expected = self._approval_signature(record)
+        if not isinstance(stored, str) or not hmac.compare_digest(stored.encode(), expected.encode()):
+            return False
+        claimed = (record.signature, record.signature_algorithm, record.key_id)
+        if claimed == (None, None, None):
+            return True
+        return (record.decided and record.signature is not None
+                and hmac.compare_digest(record.signature.encode(), expected.encode())
+                and record.signature_algorithm == SIGNATURE_ALGORITHM and record.key_id == self.key_id)
+
     def grant(self, record: ApprovalRecord, now: float) -> bool:
         """Insert an approval once; expired or previously consumed tuples cannot be renewed."""
         with self.transaction():
             key = self._binding(record)
             if record.expires_at <= now or key in self._approvals:
                 return False
-            self._approvals[key] = {"expires_at": record.expires_at, "consumed": False}
+            self._approvals[key] = {"expires_at": record.expires_at, "consumed": False,
+                                    "signature": self._approval_signature(record)}
             return True
 
     def authorized(self, record: ApprovalRecord, now: float) -> bool:
         """Read-only expiry and consumption check."""
         with self._lock:
             row = self._approvals.get(self._binding(record))
-            return bool(row and not row["consumed"] and row["expires_at"] > now)
+            return bool(row and not row["consumed"] and row["expires_at"] > now
+                        and self._verified(record, row.get("signature")))
 
     def claim(self, record: ApprovalRecord, now: float) -> bool:
         """Consume exactly one authorization under the store transaction."""
@@ -151,6 +185,14 @@ class MemoryLedgerStore:
         """Reload masked events for a stable scope."""
         with self._lock:
             return deepcopy(self._events.get(scope, []))
+
+
+def _stored_signature(display: str) -> object:
+    try:
+        value = json.loads(display)
+    except (TypeError, ValueError):
+        return None
+    return value.get("signature") if isinstance(value, dict) else None
 
 
 class SQLiteLedgerStore(MemoryLedgerStore):
@@ -218,15 +260,23 @@ class SQLiteLedgerStore(MemoryLedgerStore):
         """Compute domain-separated full-length HMAC-SHA256; never expose key material."""
         return hmac.new(self._key, (domain + "\0" + value).encode(), hashlib.sha256).hexdigest()
 
+    def _mac(self, domain: str, value: str) -> str:
+        return self.token(domain, value)
+
     def grant(self, record: ApprovalRecord, now: float) -> bool:
         """Only validated live records can create keyed, masked grant metadata."""
         if record.expires_at <= now:
             return False
         with self.transaction():
-            return self._local.connection.execute(
-                "INSERT OR IGNORE INTO approvals VALUES (?,?,?,0,?,?,?)",
-                (self._binding(record), self.token("user", record.user_id), record.expires_at,
-                 json.dumps(_display(record), ensure_ascii=False), SCHEMA_VERSION, self.key_id)).rowcount == 1
+            return self._insert(record, self._approval_signature(record))
+
+    def _insert(self, record: ApprovalRecord, signature: str | None) -> bool:
+        # 서명은 마스킹 뒤에 붙인다: 마스커가 16진 문자열의 숫자열을 카드번호로 보고 바꿀 수 있다.
+        display = {**_display(record), "signature": signature}
+        return self._local.connection.execute(
+            "INSERT OR IGNORE INTO approvals VALUES (?,?,?,0,?,?,?)",
+            (self._binding(record), self.token("user", record.user_id), record.expires_at,
+             json.dumps(display, ensure_ascii=False), SCHEMA_VERSION, self.key_id)).rowcount == 1
 
     def authorized(self, record: ApprovalRecord, now: float) -> bool:
         """Recompute the full HMAC from transient raw arguments; no writes on approval lookup."""
@@ -234,10 +284,13 @@ class SQLiteLedgerStore(MemoryLedgerStore):
         own = connection is None
         try:
             connection = connection or sqlite3.connect(self.path, timeout=30)
-            row = connection.execute("SELECT consumed, expires_at, user_hash, key_id FROM approvals WHERE binding_hash=?",
-                                     (self._binding(record),)).fetchone()
+            row = connection.execute(
+                "SELECT consumed, expires_at, user_hash, key_id, display FROM approvals WHERE binding_hash=?",
+                (self._binding(record),)).fetchone()
+            # 서명 없는 예전 행은 거부한다 (재승인 필요).
             return bool(row and not row[0] and row[1] > now and row[3] == self.key_id
-                        and hmac.compare_digest(row[2], self.token("user", record.user_id)))
+                        and hmac.compare_digest(row[2], self.token("user", record.user_id))
+                        and self._verified(record, _stored_signature(row[4])))
         except sqlite3.Error:
             raise LedgerConfigurationError("ledger lookup failed") from None
         finally:
@@ -245,8 +298,10 @@ class SQLiteLedgerStore(MemoryLedgerStore):
                 connection.close()
 
     def claim(self, record: ApprovalRecord, now: float) -> bool:
-        """One conditional UPDATE consumes once, within the caller's payment transaction."""
+        """Verify, then consume once with a conditional UPDATE inside the caller's payment transaction."""
         with self.transaction():
+            if not self.authorized(record, now):
+                return False
             return self._local.connection.execute(
                 "UPDATE approvals SET consumed=1 WHERE binding_hash=? AND consumed=0 AND expires_at>? AND key_id=? AND user_hash=?",
                 (self._binding(record), now, self.key_id, self.token("user", record.user_id))).rowcount == 1
@@ -254,7 +309,7 @@ class SQLiteLedgerStore(MemoryLedgerStore):
     def revoke(self, record: ApprovalRecord) -> None:
         """Record a denied/consumed tombstone without persisting live arguments."""
         with self.transaction():
-            self.grant(record, float("-inf"))
+            self._insert(record, None)
             self._local.connection.execute("UPDATE approvals SET consumed=1 WHERE binding_hash=? AND key_id=?",
                                            (self._binding(record), self.key_id))
 

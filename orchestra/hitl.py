@@ -25,7 +25,7 @@ def approval_key(tool: str, args: dict[str, Any], *, user_id: str = "anonymous",
 
 
 class ApprovalRecord(BaseModel):
-    """Immutable binding; signature fields are reserved and no signing is performed."""
+    """Immutable binding. The ledger store signs a record when it is approved; callers never sign."""
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid", hide_input_in_errors=True)
     key: str = Field(pattern=r"^[a-f0-9]{64}$")

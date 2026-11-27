@@ -100,7 +100,7 @@ class ApprovalLedger:
             key = record.key
             if key in self._consumed or not self.store.grant(record, time.time() if now is None else now):
                 return False
-            self._records[key] = record.model_copy(update={"decided": True})
+            self._records[key] = self.store.sign(record)
             self._granted.add(key)
             self.history.append({"key": key, "decision": True, "by": record.user_id})
             self.store.append_event("approval-history", "approval", {
