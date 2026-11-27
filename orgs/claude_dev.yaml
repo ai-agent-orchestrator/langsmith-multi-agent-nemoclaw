@@ -1,4 +1,5 @@
 # DESIGN §7.4 의 일부만 선언한다: 리뷰 팀만 구현했고 feature_lead / platform_lead 는 아직 없다.
+# feature-dev/code-explorer(워크스페이스 읽기 툴)는 도메인 팩에 선언돼 있고 아직 팀에 넣지 않았다.
 name: claude_dev
 domains: [claude_dev]
 root: engineering_director
