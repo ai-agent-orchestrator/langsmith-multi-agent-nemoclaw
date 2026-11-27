@@ -16,6 +16,7 @@ Real compiled graphs run end to end from scenarios **without any LLM, network, o
 |---|---|
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Full design: architecture, specs, 24-feature LangSmith map, NemoClaw placement |
 | [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **Handoff**: what is done / remaining tasks C1–C15 / design deviations / constraints |
+| [`docs/NEMOCLAW_KNOWN_ISSUES.md`](docs/NEMOCLAW_KNOWN_ISSUES.md) | **NemoClaw known issues**: 15 common problems (hangs, locks, WSL2, policy, telemetry) with causes, workarounds and interview notes |
 | [`AGENTS.md`](AGENTS.md) | Working rules and PR template for Codex |
 
 ## Quick start
