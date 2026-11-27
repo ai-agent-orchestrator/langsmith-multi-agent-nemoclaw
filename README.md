@@ -26,6 +26,14 @@ Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · 
 | 12 | Run code from memory (`memfd_create`) | seccomp | `EPERM` |
 | ⚠️ | Call a model via `inference.local` | **only an empty route**: setting one opens it | `503` |
 
+**Reading the table**
+
+- **Network (1–3):** neither a direct connection nor a proxy request to an unlisted host gets out. The script counts these only if the host machine can reach the same targets.
+- **Files (4–8):** `/tmp` is writable (the control), while the other writes and the read are refused. In 5, 6 and 8, ordinary file permissions would allow the access, so the sandbox policy is what stops it.
+- **Privileges (9–11):** the worker runs without root or effective capabilities and cannot gain rights through setuid. These checks read the process state.
+- **System calls (12):** `memfd_create` is blocked. This does not stop an interpreter such as Python from running code.
+- **⚠️ `inference.local`:** not one of the 12. The proxy opens this tunnel even without a network rule; the `503` only means no model route is configured. Once one is set, sandbox requests can reach that model.
+
 ## 1. What is implemented
 
 <p align="center">
@@ -50,12 +58,14 @@ Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · 
 |---|---|
 | Hierarchy, 5-stage filters, approval, mock payment, 9 scenarios | ✅ offline |
 | LangSmith, 24 features | ✅ offline · ⬜ real server |
+| NemoClaw egress policy generation | ✅ offline |
 | NemoClaw worker: read-only tools, timeout reply, isolation | ✅ real install |
 | Tool time limit, external stop file | ✅ offline |
 | Real LLM | ⬜ |
 | Egress isolation, plugin intake, refusal codes in traces | ✅ offline |
 | Sandbox CPU / memory limits, load, restart, DNS and neighbour checks | ✅ offline · ⬜ real install |
 | File upload into the sandbox | ⬜ |
+| Write and shell tools, Claude tool adapters, more scenarios | ⬜ |
 
 ## Implementation details
 

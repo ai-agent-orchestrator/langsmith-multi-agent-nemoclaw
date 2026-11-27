@@ -6,7 +6,7 @@ Back to the [README](../README.md).
 
 This repo covers the part of NemoClaw you can **see and run offline**: `ToolSpec` egress declarations -> preset generation, validation and drift check (`scripts/gen_nemoclaw_presets.py`), the security-mode <-> preset mapping (`closed` removes the LangSmith egress preset entirely), and a fake sandbox that makes the `sandbox_egress_denied` scenario show the multi-agent -> LangSmith -> NemoClaw flow end to end.
 
-**Real sandbox:** this branch also has the worker sandbox; see the isolation checks in the [README](../README.md) and [`docs/NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md). CLI and policy schemas vary by NemoClaw version.
+**Real sandbox:** the repository includes the worker sandbox; see the isolation checks in the [README](../README.md) and [`docs/NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md). CLI and policy schemas vary by NemoClaw version.
 
 ---
 

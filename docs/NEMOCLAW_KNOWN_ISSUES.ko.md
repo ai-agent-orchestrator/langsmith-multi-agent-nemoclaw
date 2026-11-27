@@ -2,7 +2,7 @@
 
 [English](NEMOCLAW_KNOWN_ISSUES.md) | **한국어**
 
-> 이 문서가 가리키는 스크립트와 코드(`scripts/nemoclaw_*.sh`, `orchestra/sandbox/nemoclaw/cli.py`, `tests/fixtures/nemoclaw/`)는 [`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli) 브랜치에 있다.
+> 이 문서가 가리키는 스크립트와 코드(`scripts/nemoclaw_*.sh`, `orchestra/sandbox/nemoclaw/cli.py`, `tests/fixtures/nemoclaw/`)는 이 저장소에 있다.
 
 > 기준: **nemoclaw v0.0.145 / openshell 0.0.116**, WSL2 Ubuntu 26.04 + Docker Desktop, 샌드박스 `my-assistant`(OpenClaw, ollama `qwen3:1.7b`, GPU).
 > 근거는 세 가지다. ① 2026-11-27 실측(`scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`), ② NemoClaw v0.0.145 소스(`NVIDIA/NemoClaw` 태그 `v0.0.145`, 커밋 `6f36fef`), ③ 공개 이슈·공식 문서.
@@ -145,7 +145,7 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종�
 
 지속 워커의 한계: 같은 샌드박스의 요청은 하나씩 처리한다. 시간 초과는 샌드박스 안의 워커가 직접 툴을 중단하고, 통하지 않으면 워커 프로세스를 끝낸다(오프라인 확인. 실설치에서는 시간 초과 응답만 확인). 툴이 따로 띄운 하위 프로세스는 이 방식으로 끝나지 않는다(지금 샌드박스 툴은 띄우지 않음). 기존 1회 실행 방식(`stdio_via_cli`)은 작업 디렉터리가 `sys.path` 앞에 올 수 있다(지속 워커는 `-P`로 막음).
 
-남은 일: 지속 워커 실설치 확인, 커스텀 프리셋 키 형식(`nemoclaw_custom__…`) 실측 확인.
+남은 일: 지속 워커의 재시작·강제 종료 실설치 확인, 커스텀 프리셋 키 형식(`nemoclaw_custom__…`) 실측 확인.
 
 ---
 
@@ -193,4 +193,4 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종�
 - NemoClaw v0.0.145 소스: `src/lib/state/registry/lock.ts`, `src/lib/state/mcp-lifecycle-lock-acquisition.ts`, `src/lib/state/mcp-lifecycle-lock-identity.ts`, `src/lib/actions/sandbox/lifecycle/lock.ts`, `src/lib/cli/nemoclaw-oclif-command.ts`, `src/commands/sandbox/exec.ts`, `src/lib/actions/sandbox/inference-invocation-probe.ts`, `docs/reference/troubleshooting.mdx`
 - 이슈: [#14070](https://github.com/NVIDIA/NemoClaw/issues/14070) · [#10663](https://github.com/NVIDIA/NemoClaw/issues/10663) · [#12281](https://github.com/NVIDIA/NemoClaw/issues/12281) · [#11903](https://github.com/NVIDIA/NemoClaw/issues/11903) · [#11132](https://github.com/NVIDIA/NemoClaw/issues/11132) · [#10461](https://github.com/NVIDIA/NemoClaw/issues/10461) · [#9746](https://github.com/NVIDIA/NemoClaw/issues/9746) · [#13017](https://github.com/NVIDIA/NemoClaw/issues/13017) · [#9737](https://github.com/NVIDIA/NemoClaw/issues/9737) · [#9604](https://github.com/NVIDIA/NemoClaw/issues/9604) · [#9109](https://github.com/NVIDIA/NemoClaw/issues/9109) · [#208](https://github.com/NVIDIA/NemoClaw/issues/208)
 - 문서: [Troubleshooting](https://docs.nvidia.com/nemoclaw/reference/troubleshooting) · [CLI Commands Reference](https://docs.nvidia.com/nemoclaw/latest/reference/commands) · [Create Custom Policy Presets](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/network-policy/configure-policies/create-custom-policy-presets) · [Configure Inference Timeouts](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/inference/manage-inference/configure-inference-timeouts) · [Release notes 2026-11-03 (v0.0.141)](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/release-notes/2026/11/3)
-- 실측 기록: 로컬 점검 결과 폴더(커밋하지 않음), fixture: `21-nemoclaw-cli` 브랜치의 `tests/fixtures/nemoclaw/`
+- 실측 기록: 로컬 점검 결과 폴더(커밋하지 않음), fixture: `tests/fixtures/nemoclaw/`
