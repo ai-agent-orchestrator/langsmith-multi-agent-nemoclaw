@@ -8,8 +8,10 @@ from contextlib import nullcontext
 from typing import Any, Callable, ContextManager, Optional
 
 from langchain_core.messages import BaseMessage
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
+from .backends.base import ModelBlocked
 from .filters.base import Action, FilterContext, Stage
 from .patterns.hierarchical_graph import BuiltApp
 from .messages import MessageContractBlocked
@@ -65,7 +67,14 @@ class OrchestraService:
 
     def resume(self, thread_id: str, decision: bool | dict, *, user_id: str = "anonymous") -> dict:
         """interrupt 에 대한 사용자 응답으로 그래프를 재개한다."""
+        stop = self.app.runtime.security_control.guard("")
+        if stop is not None:  # 대기 중인 interrupt 는 건드리지 않아 해제 후 다시 재개할 수 있다.
+            return self._stopped(stop, "security_control", "차단: 운영자 중단 상태입니다", thread_id)
         return self._invoke(Command(resume=decision), thread_id, user_id)
+
+    def _stopped(self, reason: str, by: str, answer: str, thread_id: str) -> dict:
+        self.app.runtime.events.add("blocked", by=by, reason=reason)
+        return {"answer": answer, "blocked": True, "reason": reason, "thread_id": thread_id, "interrupt": None}
 
     def _invoke(self, payload: Any, thread_id: str, user_id: str = "anonymous") -> dict:
         try:
@@ -79,6 +88,11 @@ class OrchestraService:
             self.app.runtime.events.add("blocked", by="message_contract", reason="message_contract_blocked")
             return {"answer": "차단: 메시지 계약 위반", "blocked": True, "reason": "message_contract_blocked",
                     "thread_id": thread_id, "interrupt": None}
+        except GraphRecursionError:
+            return self._stopped("recursion_limit", "recursion_limit", "차단: 에이전트 반복 한도를 넘었습니다", thread_id)
+        except ModelBlocked:
+            reason = self.app.runtime.security_control.guard("") or "model_blocked"
+            return self._stopped(reason, "pre_model", "차단: 모델 호출 정책 위반", thread_id)
         except ApprovalBindingBlocked:
             return {"answer": "차단: 승인 바인딩이 유효하지 않습니다", "blocked": True, "reason": "approval_binding_blocked",
                     "thread_id": thread_id, "interrupt": None}

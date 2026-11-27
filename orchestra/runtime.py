@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import time
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from .hitl import ApprovalRecord
 from .ledger import LedgerStore, MemoryLedgerStore, create_ledger_store, LedgerConfigurationError
+from .security.audit_events import AuditUnavailable, audit_record
 from .security.control import SecurityControl
+
+if TYPE_CHECKING:
+    from .security.audit import AuditLog
 
 
 @dataclass
@@ -30,6 +35,7 @@ class EventLog:
         self.capture_trace = capture_trace
         self._explicit_store = store is not None
         self.scope = scope
+        self.audit: Optional[AuditLog] = None
         self.store = store or MemoryLedgerStore()
         self.bind_store(self.store)
 
@@ -48,11 +54,19 @@ class EventLog:
         self._events = [Event(e["kind"], e["data"], e["seq"]) for e in store.read_events(self.scope)]
 
     def add(self, kind: str, *, dedupe_key: Optional[str] = None, **data: Any) -> None:
-        if dedupe_key is not None and not self.store.persistent:
-            if dedupe_key in self._seen:
-                return
-            self._seen.add(dedupe_key)
-        saved = self.store.append_event(self.scope, kind, data, dedupe_key)
+        """Record an event; with an audit log attached, both writes succeed or the event is rolled back."""
+        local_dedupe = dedupe_key is not None and not self.store.persistent
+        if local_dedupe and dedupe_key in self._seen:
+            return
+        with nullcontext() if self.audit is None else self.store.transaction():
+            saved = self.store.append_event(self.scope, kind, data, dedupe_key)
+            if saved is not None and self.audit is not None:
+                try:
+                    self.audit.append(audit_record(kind, saved["seq"], data))
+                except Exception:
+                    raise AuditUnavailable("audit_append_failed") from None
+        if local_dedupe:
+            self._seen.add(str(dedupe_key))
         if saved is not None and not self.store.persistent:
             self._events.append(Event(kind, data, seq=saved["seq"]))
 
@@ -165,3 +179,10 @@ class Runtime:
         self.approvals.bind_store(store)
         self.events.bind_store(store)
         self.services["ledger_store"] = store
+        self.bind_audit()
+
+    def bind_audit(self) -> None:
+        """Attach `services["audit_log"]` (an AuditLog) to the event log when the operator provides one."""
+        audit = self.services.get("audit_log")
+        if audit is not None:
+            self.events.audit = audit

@@ -1,4 +1,4 @@
-"""Offline deterministic evaluation and an optional guarded SDK experiment."""
+"""Offline deterministic evaluation and an explicitly requested hosted SDK experiment."""
 from typing import Any
 
 from langsmith import evaluate
@@ -7,8 +7,7 @@ from ..simulation import list_scenarios, run_scenario
 from .evaluators import payment_safety, require_payment_safety, trajectory_match, security_block, pass_rate
 from .safe import safe_call
 from .tracing import tracing_scope
-from .client import make_client
-from .offline import capture_server
+from .client import security_mode
 
 
 def evaluate_scenarios() -> list[dict]:
@@ -26,15 +25,29 @@ def evaluate_scenarios() -> list[dict]:
     return rows
 
 
+def _evaluate_locally(target: Any, data: Any, evaluators: list) -> list[dict]:
+    if isinstance(data, (str, bytes)):
+        raise ValueError("offline evaluation needs local examples, not a hosted dataset name")
+    rows = []
+    for example in data:
+        inputs, reference = ((example["inputs"], example.get("outputs")) if isinstance(example, dict)
+                             else (example.inputs, example.outputs))
+        output = target(inputs)
+        rows.append({"inputs": inputs, "outputs": output, "reference": reference,
+                     "scores": [evaluator(output, reference) for evaluator in evaluators]})
+    return rows
+
+
 def sdk_evaluate(target: Any, data: Any, evaluators: list, *, offline: bool = True, client: Any = None) -> Any:
-    """Use the installed SDK with upload_results=False for local experiments."""
+    """offline: 프로세스 안에서만 채점한다(SDK·클라이언트 없음). 업로드는 열린 클라이언트를 명시해야 한다.
+
+    평가자는 `(outputs, reference_outputs)` 순서의 위치 인자로 호출된다.
+    """
     if offline:
-        # The SDK still constructs a client in local evaluation. Supply loopback explicitly.
-        with capture_server() as (endpoint, _):
-            local = make_client("masked", api_url=endpoint, api_key="local-test", auto_batch_tracing=False)
-            with tracing_scope("closed", local, enabled=False):
-                return safe_call(evaluate, target, data=data, evaluators=evaluators, upload_results=False,
-                                 disable_evaluator_tracing=True, client=local, experiment_prefix="orchestra-eval")
+        return _evaluate_locally(target, data, evaluators)
+    closed = security_mode() == "closed" or getattr(client, "mode", None) == "closed"
+    if closed or getattr(client, "raw", None) is None:
+        raise RuntimeError("hosted evaluation requires an explicit open client and is refused in closed mode")
     with tracing_scope("masked", client):
         return safe_call(evaluate, target, data=data, evaluators=evaluators,
                          client=client, experiment_prefix="orchestra-eval")

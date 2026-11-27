@@ -151,12 +151,14 @@ def main(argv: list[str] | None = None) -> int:
                                     client, regressions, name="orchestra-regressions") if regressions else None}
         elif command == "eval":
             rows = evaluate_scenarios()
-            # Exercise the actual installed SDK locally, rather than relabeling custom scores as an SDK experiment.
-            sdk_result = sdk_evaluate(lambda inputs: {"answer": inputs["value"]},
+            # In-process scoring only; this is not an SDK experiment and is not reported as one.
+            local = sdk_evaluate(lambda inputs: {"answer": inputs["value"]},
                                       [{"inputs": {"value": "local"}, "outputs": {"answer": "local"}}],
                                       [lambda outputs, reference_outputs: {"key": "exact", "score": float(outputs == reference_outputs)}])
-            results[command] = {"rows": rows, "summary": summarize(rows), "sdk_executed": sdk_result is not None}
-            assert sdk_result is not None, "offline SDK evaluation failed"
+            exact = all(score["score"] == 1.0 for row in local for score in row["scores"])
+            results[command] = {"rows": rows, "summary": summarize(rows), "sdk_executed": False,
+                                "local_evaluation": {"examples": len(local), "passed": exact}}
+            assert exact, "offline evaluation failed"
         elif command == "pairwise":
             results[command] = compare({"pattern": args.a}, {"pattern": args.b})
         elif command == "prompts":

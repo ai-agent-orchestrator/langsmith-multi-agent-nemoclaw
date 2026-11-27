@@ -108,6 +108,7 @@ def build_hierarchical_app(
     rt.org = org.name
     rt.services = services
     services["ledger_store"] = rt.ledger_store
+    rt.bind_audit()
 
     packs = build_packs(org.domains, services)
     res = resolve(org, packs)

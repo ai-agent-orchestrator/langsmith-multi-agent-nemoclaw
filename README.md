@@ -92,6 +92,15 @@ gate fails CI on an executed COMMIT without matching approval evidence.
 See [LangSmith setup and verified limits](docs/langsmith-ui-setup.md) for service
 hook integration, Prompt Hub fallbacks, UI procedures and unsupported capabilities.
 
+### Operator stops and audit
+
+`ORCHESTRA_KILL_SWITCH=1` is read on every call and stops new model and tool calls.
+Five consecutive blocked tool decisions open a team's circuit; successes do not
+close it, only `runtime.security_control.reset(team)` does. Passing
+`services={"audit_log": AuditLog(path, key)}` writes every runtime event to the HMAC
+hash chain: identifier-like fields stay readable, everything else is stored as a
+digest, and an event whose audit write fails is rolled back and raises.
+
 Third-party snapshots are pinned in `third_party/LOCK.json` with per-file SHA-256
 hashes. Run `python scripts/sync_third_party.py --check` without network access to
 check integrity. To update a snapshot, use only this script:
@@ -368,8 +377,9 @@ retry old requests across key epochs. Inspect recorded receipts and reconcile
 pending requests before enabling new work; no automatic re-keying or recovery of
 raw inputs is implemented. Keep old secrets out of the database and version control.
 
-One masked `append_event` hook is available for future signature/chain integration;
-its default is a no-op. No signature or hash chain is implemented. These guarantees
+One masked `append_event` hook is available for integrations; its default is a no-op,
+and the ledger's event rows are not hash-chained (use the optional audit log for
+that). These guarantees
 cover the local mock/Fake path. SQLite COMMIT rejects nonparticipating payment
 providers and remote sandbox transports. Graph checkpoints, holds, model queues,
 and actual payment-provider effects are not made durable or transactionally coupled
