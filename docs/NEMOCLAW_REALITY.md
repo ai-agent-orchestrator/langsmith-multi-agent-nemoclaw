@@ -46,7 +46,7 @@
 | 10b | 추론 상태 | ❌(환경) `status`/`doctor` rc=1: 샌드박스 추론 요청이 HTTP 502. Ollama(11434)는 정상, 인증 프록시(127.0.0.1:11435) 미기동. 조치: `nemoclaw my-assistant connect`로 재기동. 개발·테스트는 ScriptedChatModel 이라 영향 없음 |
 | 11 | 텔레메트리 | ✅ 문서: v0.0.141+ 기본 켜짐, `NEMOCLAW_DISABLE_TELEMETRY=1`로 끔. 래퍼는 기본으로 끈다 |
 
-### 3.1 지속형 워커 경로 (N2) — 소스 확인 + SSH 전제 실측, **워커 실연동 미확인**
+### 3.1 지속형 워커 경로 (N2) — 소스 확인 + SSH 전제 실측 (워커 왕복 실측은 §3.2)
 
 > 대조한 소스: `NVIDIA/NemoClaw` 태그 `v0.0.145`(`6f36fef`), `NVIDIA/OpenShell` 0.0.116(`d1155aa`).
 
@@ -75,7 +75,7 @@ bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고
 
 점검 스크립트는 `ssh-config` 그대로 접속한다. 런처의 더 좁은 옵션(`none` 인증만 허용)과 설정 파서는 실설치에서 아직 실행하지 않았다.
 
-### 3.2 워커 샌드박스 설치 (N2) — 소스 확인 + 컨테이너 대역 검증, **실설치 미실행**
+### 3.2 워커 샌드박스 설치 (N2) — 소스 확인 + 컨테이너 대역 검증 + **실설치 생성·워커 왕복 확인**
 
 | # | 항목 | 확인 내용 | 근거 |
 |---|---|---|---|
@@ -87,9 +87,14 @@ bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고
 | 22 | 인증 키 | 호스트의 마스터 키는 밖으로 나가지 않는다. 샌드박스에는 `HMAC(마스터, 샌드박스 이름)` 파생 키만 SSH 표준입력으로 넣는다(`/sandbox/state/capability.key`, 0400) | `orchestra/security/capability.py` |
 
 검증한 범위: 실제 Docker(classic builder)로 이미지 빌드 → 환경을 비운 SSH 세션을 흉내 낸 컨테이너에서 설치 스크립트의 생성·키 설치·워커 점검, `-m nemoclaw` 테스트 통과. 베이스는 레지스트리 접근이 막혀 **Ubuntu 24.04 + Python 3.12 로컬 이미지**를 썼다(`python:3.11-slim` 아님).
-**확인하지 못한 것:** 실제 OpenShell 의 이미지 수용, 정책·Landlock 적용, 게이트웨이를 통한 SSH, NemoClaw 가 관리하지 않는 샌드박스가 함께 있을 때의 동작.
+**실설치 실측 (2026-11-27, WSL2 Ubuntu 26.04, 호스트 Python 3.14, 사용자 실행):** `scripts/nemoclaw_worker_sandbox.py --yes` 가 `WORKER_PROBE=PASS`.
+- 베이스 `python@sha256:61e01f72680f86a5279ad510818ab7b2ee9f049822589d4e34e33e044360356c`(`python:3.11-slim`)로 247개 파일 컨텍스트에서 이미지 빌드, 게이트웨이 `nemoclaw`의 로컬 Docker 에서 샌드박스 `orchestra-code` 생성.
+- SSH 표준입력으로 파생 키 설치, 지속형 transport 한 프로세스로 점검 요청 3회 모두 `worker_tool_forbidden`(기대값). 왕복 0.601초(첫 회, 워커 기동 포함) → 0.003초 → 0.002초.
+- 호스트에 `python3.14-venv` 패키지가 없으면 가상환경 생성이 실패한다(`sudo apt install -y python3.14-venv`).
 
-설치 절차 (WSL2, **샌드박스 생성은 사용자 승인 후**):
+**확인하지 못한 것:** `-m nemoclaw` pytest 실연동, 적용된 정책의 `policy get` 출력, 네트워크 차단·Landlock 이 실제로 막는지, 워커 재시작·타임아웃 동작, NemoClaw 가 관리하지 않는 샌드박스가 기존 샌드박스에 주는 영향.
+
+설치 절차 (**WSL2 셸 안에서** — PowerShell 이면 먼저 `bash -l`. 샌드박스 생성은 사용자 승인 후):
 ```bash
 git clone -b 21-nemoclaw-cli https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw ~/orchestra && cd ~/orchestra
 python3 -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]'
