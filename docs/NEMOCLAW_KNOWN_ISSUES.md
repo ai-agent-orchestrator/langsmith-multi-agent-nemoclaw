@@ -136,9 +136,14 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # stop hung CLI processes + ren
 | Policy replacement risk | No `policy set`; changes are one approved `policy add --from-file … --yes` | `cli.py`, `orchestra/security/policy_change.py` |
 | Telemetry | `NEMOCLAW_DISABLE_TELEMETRY=1` in the child environment | `cli.py` `_child_env` |
 | Operational diagnosis | Install probe, hang diagnosis, lock diagnosis and cleanup | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
+| One `exec` per call | Optional persistent worker (`NEMOCLAW_TRANSPORT=ssh_stream`): start it once over OpenShell SSH and exchange one JSON line per request. On failure the session is killed and the request is **not resent** **[source, not yet run on a real install]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1](NEMOCLAW_REALITY.md) |
 | Regression prevention | Tests built on real CLI output fixtures | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
-Still to do: a long-lived worker execution path, in-sandbox second-line filters (N3), and measuring the custom preset key format (`nemoclaw_custom__…`).
+`nemoclaw <sb> exec` runs inside both locks from section 2 until the remote command ends **[source]**, and the command starts only after piped input has been read to the end (OpenShell 0.0.116) **[source]**, so it cannot host a long-lived worker.
+
+Limits of the persistent worker: requests to one sandbox run one at a time. Whether closing the SSH session on a timeout also stops a tool already running in the sandbox is unverified. The older one-call path (`stdio_via_cli`) can put the working directory first on `sys.path` (the persistent worker blocks this with `-P`).
+
+Still to do: verifying the persistent worker on a real install, in-sandbox second-line filters (N3), and measuring the custom preset key format (`nemoclaw_custom__…`).
 
 ---
 

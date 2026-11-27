@@ -12,7 +12,7 @@
 | 실측 완료 | CLI 문법, `openshell policy get --base` 출력 형식, `exec`(약 1초, `uid=998(sandbox)`, Python 3.13.5), 우리 프리셋 2개 dry-run 통과 → `docs/NEMOCLAW_REALITY.md` §3 |
 | 해결한 장애 | 이전 WSL 부팅이 남긴 샌드박스 잠금 때문에 nemoclaw 샌드박스 명령이 전부 멈춤 → `scripts/nemoclaw_lock_doctor.sh --clean`으로 해결(45초 이상 → 1.15초) |
 | 남은 환경 문제 | 샌드박스 추론 HTTP 502(Ollama 인증 프록시 미기동). 개발엔 영향 없음(ScriptedChatModel). 실제 대화가 필요하면 사용자가 `nemoclaw my-assistant connect` |
-| 테스트 | **360 통과 / 실패 0** (1개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
+| 테스트 | **419 통과 / 실패 0** (2개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
 | 정적 검사 | `ruff` 통과, `mypy orchestra` 오류 0 |
 
 ## 1단계 — 복원 마무리: 실패 테스트 22개 + import 오류 1개 (완료)
@@ -55,7 +55,13 @@ python scripts/sync_third_party.py --check
 ```
 작은 단위로 나눠 커밋한다(예: providers+loop_adapter → ExecRequest.agent → 승인 서명 → 감사 훅·kill switch → concert_demo·pr_review 시나리오 → cli_adapter).
 
-## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로
+## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로 (오프라인 완료, 실설치 확인 남음)
+
+> **오프라인 구현 완료 (2026-11-27).** 아래 "방향"의 `nemoclaw exec` 상시 실행은 소스 확인 결과 동작하지 않아(입력을 EOF 까지 모음, 실행 내내 잠금 보유) **OpenShell SSH**로 바꿨다. 근거와 실설치에서 남은 확인은 [`NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md) §3.1.
+> - 구현: `orchestra/sandbox/nemoclaw/persistent.py`, `ssh_launcher.py`, 워커 `--serve`. 기본값은 기존 1회 실행이며 `NEMOCLAW_TRANSPORT=ssh_stream`으로 켠다. 1회 실행 명령에는 `--stdin`을 추가했다.
+> - 완료 조건: `tests/test_nemoclaw_persistent.py`(실프로세스 오프라인 왕복 + `-m nemoclaw` 실연동 1개, 기본 skip).
+> - 남음: `scripts/nemoclaw_ssh_stream_check.sh` 실행 → (사용자 승인 후) 이미지 재생성, capability 키 전달 경로 결정 → 실연동 테스트.
+> - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).
 - 방향: `nemoclaw <sb> exec --stdin -- /opt/orchestra/venv/bin/python -m orchestra.sandbox.nemoclaw.worker`를 **한 번** 띄우고, 줄 단위 JSON 요청·응답을 주고받는 지속형 transport. 재시작·타임아웃·크기 상한·fail-closed. `exec`는 `--stdin`을 명시해야 파이프가 전달된다(실측).
