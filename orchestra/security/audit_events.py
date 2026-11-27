@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 _PLAIN_FIELDS = frozenset({
     "tool", "agent", "reason", "by", "stage", "ok", "approved", "error", "sandbox", "policy_revision", "filter",
-    "action", "route", "mode", "team", "status", "source", "target", "role", "node_kind", "exhausted",
+    "action", "route", "mode", "team", "status", "source", "target", "role", "node_kind", "exhausted", "reason_code",
 })
 # 자유 문장(모델이 쓴 사유 등)은 허용 필드여도 원문으로 남기지 않는다.
 _CODE = re.compile(r"[A-Za-z0-9_:./\-]{0,128}")

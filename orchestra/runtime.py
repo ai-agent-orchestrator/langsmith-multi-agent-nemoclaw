@@ -10,6 +10,7 @@ from .hitl import ApprovalRecord
 from .ledger import LedgerStore, MemoryLedgerStore, create_ledger_store, LedgerConfigurationError
 from .security.audit_events import AuditUnavailable, audit_record
 from .security.control import SecurityControl
+from .security.decision import event_reason_code
 
 if TYPE_CHECKING:
     from .security.audit import AuditLog
@@ -58,6 +59,10 @@ class EventLog:
         local_dedupe = dedupe_key is not None and not self.store.persistent
         if local_dedupe and dedupe_key in self._seen:
             return
+        # 차단 지점마다 붙이지 않고 여기서 붙여, 새 차단 경로도 같은 계약을 따르게 한다.
+        code = event_reason_code(kind, data)
+        if code is not None:
+            data.setdefault("reason_code", code)
         with nullcontext() if self.audit is None else self.store.transaction():
             saved = self.store.append_event(self.scope, kind, data, dedupe_key)
             if saved is not None and self.audit is not None:

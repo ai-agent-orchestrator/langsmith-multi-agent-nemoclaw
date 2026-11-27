@@ -15,8 +15,8 @@ _FIELDS = {
     "approval_request": ("tool", "ask"),
     "approval": ("tool", "approved"),
     "sandbox_route": ("tool", "agent", "sandbox", "route", "mode"),
-    "sandbox": ("tool", "sandbox", "ok", "error", "egress_denied", "policy_revision"),
-    "blocked": ("stage", "by", "tool", "agent", "reason"),
+    "sandbox": ("tool", "sandbox", "ok", "error", "egress_denied", "policy_revision", "reason_code"),
+    "blocked": ("stage", "by", "tool", "agent", "reason", "reason_code"),
 }
 
 
