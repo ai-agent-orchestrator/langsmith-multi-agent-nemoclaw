@@ -48,15 +48,19 @@ def parse_ssh_config(text: str, sandbox: str, openshell: str) -> tuple[str, str]
 
 
 class OpenShellSshLauncher:
-    """Callable used by PersistentTransport; the remote command is fixed."""
+    """Callable used by PersistentTransport to start the worker with a fixed remote command."""
 
     def __init__(self, cli: NemoClawCli, *, ssh: str = "ssh") -> None:
         self.cli, self.ssh = cli, ssh
 
     def __call__(self, sandbox: str) -> list[str]:
+        return self.argv(sandbox, shlex.join(SERVE_COMMAND))
+
+    def argv(self, sandbox: str, remote_command: str) -> list[str]:
+        """Build the ssh argv for a command chosen by the caller's code, never by request data."""
         result = self.cli.run("ssh_config", sandbox=sandbox)
         if not result.ok or result.dry_run:
             raise RuntimeError("ssh_config_unavailable")
         host, proxy = parse_ssh_config(result.stdout, sandbox, self.cli.openshell)
         options = [part for option in (f"ProxyCommand={proxy}", *_OPTIONS) for part in ("-o", option)]
-        return [self.ssh, "-F", "/dev/null", "-T", *options, f"sandbox@{host}", shlex.join(SERVE_COMMAND)]
+        return [self.ssh, "-F", "/dev/null", "-T", *options, f"sandbox@{host}", remote_command]
