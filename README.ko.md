@@ -15,6 +15,7 @@ LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시�
 |---|---|
 | [`docs/DESIGN.md`](docs/DESIGN.md) | 전체 설계서 (아키텍처·스펙·LangSmith 24개 기능 지도·NemoClaw 배치) |
 | [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **인수인계**: 끝난 것 / 남은 일 C1~C15 / 설계 이탈 / 주의사항 |
+| [`docs/NEMOCLAW_KNOWN_ISSUES.ko.md`](docs/NEMOCLAW_KNOWN_ISSUES.ko.md) | **NemoClaw 흔한 문제 정리**: 멈춤·잠금·WSL2·정책·텔레메트리 등 15가지 — 원인, 우회 방법, 면접 포인트 |
 | [`AGENTS.md`](AGENTS.md) | Codex 작업 규칙·PR 템플릿 |
 
 ## 빠른 실행
