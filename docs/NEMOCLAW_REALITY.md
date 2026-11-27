@@ -96,7 +96,7 @@ bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고
 - `openshell policy get --base orchestra-code`: `Status: Effective`, `Source: sandbox`. 내용은 `nemoclaw/policy-worker.yaml`과 같고, 빈 `network_policies`는 **출력에서 생략**됨(#21 실측 확인). 저장소 파서에 이 출력을 넣어 `network_policies` 없음, drift 0건 확인.
 - 지속형 transport 의 왕복 시간에는 러너가 실행 전마다 하는 `openshell policy get`(1초 미만, §3)이 포함되지 않는다.
 
-**확인하지 못한 것:** 네트워크 차단·Landlock 이 실제로 막는지, 워커 재시작·타임아웃 동작, NemoClaw 가 관리하지 않는 샌드박스가 기존 샌드박스에 주는 영향.
+**확인하지 못한 것:** 워커 재시작 동작, NemoClaw 가 관리하지 않는 샌드박스가 기존 샌드박스에 주는 영향. 네트워크 차단·Landlock 은 이후 §3.4, 시간 초과 응답은 §3.3 에서 확인.
 
 설치 절차 (**WSL2 셸 안에서** — PowerShell 이면 먼저 `bash -l`. 샌드박스 생성은 사용자 승인 후):
 ```bash
@@ -149,7 +149,7 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 ```
 합격: `WORKER_PROBE=PASS`, pytest `1 passed`.
 
-### 3.4 격리 점검 — 도구 준비, **실설치 미확인**
+### 3.4 격리 점검 — **실설치 통과** (2026-11-27)
 `python scripts/nemoclaw_isolation_check.py` (WSL2, `orchestra-code` 가 있을 때). 샌드박스를 다시 만들지 않는다. 점검 프로그램(`orchestra/sandbox/nemoclaw/isolation_probe.py`)을 워커와 같은 SSH 경로의 표준입력으로 보내 실행하고, 만들 수 있었던 파일은 지운다.
 
 | 점검 | 통과 조건 |
@@ -165,6 +165,19 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 
 `ISOLATION=PASS` 는 전부 통과, `FAIL` 은 하나라도 허용됨, `INCOMPLETE` 는 확인하지 못한 항목이 있음. 판정하지 않는 정보: DNS 해석 여부, 비밀값 모양의 환경변수 **이름**, `--inference-host inference.local` 을 주면 프록시가 그 터널을 여는지(OpenShell 0.0.116 `proxy.rs` 는 네트워크 정책 평가 전에 `inference.local:443` 터널을 연다 — 소스 확인).
 점검 범위 밖: CPU·메모리 상한, 샌드박스 간 격리, DNS 를 통한 유출.
+
+**실설치 실측 (2026-11-27, WSL2, 사용자 실행, `--inference-host inference.local`):** `ISOLATION=PASS`. 이미지는 `ec2558e` 로 만든 `orchestra-code`, 점검 스크립트는 `48e7b6a`.
+
+| 결과 | 관측값 |
+|---|---|
+| 외부 접속 거부 | 직접 TCP 는 시간 초과, 프록시 `CONNECT`·평문 HTTP 는 403 |
+| 파일 정책 적용 | `/var/tmp`·`/dev/shm` 쓰기와 `/var/lib/dpkg/status` 열기가 `EACCES`. 일반 파일 권한으로는 허용되는 대상이라 Landlock 이 거부한 것 |
+| 코드 쓰기 거부 | `/opt/orchestra` `EACCES`(파일 권한만으로도 거부되는 대상) |
+| 권한 | uid 10001, `CapEff` 0, `NoNewPrivs` 1, `memfd_create` `EPERM` |
+| 정보 | DNS 해석 실패, 비밀값 모양의 환경변수 이름 없음 |
+| ⚠️ `inference.local` | 네트워크 규칙이 없어도 프록시가 터널을 연다(`status=200`) |
+
+**남은 확인:** `inference.local` 터널로 보낸 요청이 실제 모델까지 가는지, 간다면 워커 샌드박스에서 막는 방법. 확인 전에는 이 샌드박스를 "네트워크가 완전히 없다"고 설명하지 않는다.
 
 ### 점검 절차
 ```bash

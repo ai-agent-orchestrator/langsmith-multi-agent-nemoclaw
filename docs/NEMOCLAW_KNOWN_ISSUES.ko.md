@@ -137,7 +137,7 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종�
 | 텔레메트리 | 하위 프로세스 환경에 `NEMOCLAW_DISABLE_TELEMETRY=1` | `cli.py` `_child_env` |
 | 운영 진단 | 실측 점검, 멈춤 진단, 잠금 진단·정리 | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
 | 호출마다 `exec` | 선택형 지속 워커(`NEMOCLAW_TRANSPORT=ssh_stream`): OpenShell SSH 로 워커를 한 번 띄워 줄 단위 JSON 을 주고받음. 실패하면 세션을 종료하고 **재전송하지 않음** **[실측: 점검 요청 왕복. 재시작·타임아웃은 실설치 미확인]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1·§3.2](NEMOCLAW_REALITY.md) |
-| 직접 만든 이미지 | `nemoclaw onboard --from`은 NemoClaw 런타임이 든 이미지가 필요 → 워커는 `openshell sandbox create --from` 사용 **[실측: 생성·키 설치·워커 점검. 네트워크 차단은 미확인]** | `scripts/nemoclaw_worker_sandbox.py`, [REALITY §3.2](NEMOCLAW_REALITY.md) |
+| 직접 만든 이미지 | `nemoclaw onboard --from`은 NemoClaw 런타임이 든 이미지가 필요 → 워커는 `openshell sandbox create --from` 사용 **[실측: 생성·키 설치·워커 점검·격리 점검. `inference.local` 터널은 네트워크 규칙 없이도 열림]** | `scripts/nemoclaw_worker_sandbox.py`, [REALITY §3.2](NEMOCLAW_REALITY.md) |
 | 빈 네트워크 정책 | `policy get`이 빈 `network_policies`를 생략 → OpenShell 출력일 때만 "규칙 없음"으로 해석 **[소스]** | `orchestra/sandbox/nemoclaw/live.py` `parse_policy` |
 | 회귀 방지 | 실측 출력 fixture 기반 테스트 | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
