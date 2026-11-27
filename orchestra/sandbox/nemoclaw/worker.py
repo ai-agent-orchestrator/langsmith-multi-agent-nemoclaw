@@ -10,7 +10,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import time
-from typing import Any, cast, Iterator
+from typing import Any, BinaryIO, cast, Iterator
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +28,9 @@ from ..base import ExecResult
 from .cli import SANDBOX_NAME_RE
 
 MAX_BYTES = 1_048_576
+# One protocol line wraps a request or result as a JSON string, which at most doubles its size.
+MAX_LINE_BYTES = 2 * MAX_BYTES + 1024
+PROTOCOL_VERSION = 1
 
 
 class WorkerRequest(BaseModel):
@@ -150,13 +153,53 @@ class Worker:
         return result
 
 
-def main() -> int:
-    """Load the sandbox's own org and filters; read exactly one JSON request."""
+def serve(worker: Worker, source: BinaryIO, sink: BinaryIO) -> int:
+    """Answer one JSON line per request until EOF; a line that cannot be framed ends the session."""
+    def send(message: dict[str, Any]) -> None:
+        sink.write(json.dumps(message, ensure_ascii=False).encode() + b"\n")
+        sink.flush()
+
+    send({"orchestra_worker": PROTOCOL_VERSION, "ready": True})
+    while True:
+        line = source.readline(MAX_LINE_BYTES + 1)
+        if not line:
+            return 0
+        if len(line) > MAX_LINE_BYTES or not line.endswith(b"\n"):
+            return 1
+        try:
+            frame = json.loads(line)
+            if not isinstance(frame, dict) or set(frame) != {"id", "request"}:
+                return 1
+            request_id, request = frame["id"], frame["request"]
+        except (ValueError, RecursionError):
+            return 1
+        if not isinstance(request_id, str) or not 0 < len(request_id) <= 64 or not isinstance(request, str):
+            return 1
+        send({"id": request_id, "response": worker.handle(request)})
+
+
+def take_protocol_streams() -> tuple[BinaryIO, BinaryIO]:
+    """Reserve the real stdin/stdout for the protocol: tools then read nothing and print to stderr."""
+    source, sink = os.fdopen(os.dup(0), "rb"), os.fdopen(os.dup(1), "wb")
+    devnull = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(devnull, 0)
+    os.close(devnull)
+    os.dup2(2, 1)
+    return source, sink
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Load the sandbox's own org and filters; answer one request, or a stream of them with --serve."""
     from ...filters.chain import build_chain
     from ...org import load_org
     from ...registry import build_packs, resolve
 
+    arguments = sys.argv[1:] if argv is None else argv
+    serving = arguments == ["--serve"]
     try:
+        if arguments and not serving:
+            raise ValueError
+        streams = take_protocol_streams() if serving else None
         sandbox = os.environ["ORCHESTRA_WORKER_SANDBOX"]
         org = load_org(os.environ["ORCHESTRA_WORKER_ORG"])
         resolved = resolve(org, build_packs(org.domains, {}))
@@ -165,13 +208,17 @@ def main() -> int:
         worker = Worker(sandbox, resolved.tools, build_chain(resolved.filter_specs, resolved.filter_impls),
                         journal=Path(os.environ["ORCHESTRA_WORKER_JOURNAL"]),
                         grants=grants, authority=authority)
+        if streams is not None:
+            return serve(worker, *streams)
         raw = sys.stdin.buffer.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ValueError
         sys.stdout.write(worker.handle(raw.decode("utf-8")))
         return 0
     except Exception:
-        sys.stdout.write(ExecResult(ok=False, error="worker_unavailable").model_dump_json())
+        # In serve mode the host treats the missing ready line as a failed handshake.
+        if not serving:
+            sys.stdout.write(ExecResult(ok=False, error="worker_unavailable").model_dump_json())
         return 1
 
 
