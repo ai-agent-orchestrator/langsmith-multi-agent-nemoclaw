@@ -22,12 +22,14 @@ dependencies = [
 dev = ["pytest>=8,<10", "ruff>=0.17,<0.18", "mypy>=2.4,<3", "types-PyYAML>=6,<7", "langchain>=1.5,<2"]
 agent-v1 = ["langchain>=1.5,<2"]
 langsmith = ["langsmith>=0.4,<1"]
+# openai_compatible provider (local servers, NemoClaw inference.local).
+models = ["langchain-openai>=1,<2"]
 # NemoClaw/OpenShell and Claude are external CLIs, with no Python SDK required.
 nemoclaw = []
 claude-cli = []
 
 [tool.setuptools.packages.find]
-include = ["orchestra*", "domains*", "travel_planner*"]
+include = ["orchestra*", "domains*", "travel_planner*", "third_party.multi_agent_module_lib"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -57,3 +59,8 @@ check_untyped_defs = true
 warn_unused_ignores = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Vendored originals are not edited (AGENTS.md rule 5), so their findings are not ours to fix.
+module = "third_party.*"
+ignore_errors = true
