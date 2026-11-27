@@ -34,6 +34,9 @@ MAX_LINE_BYTES = 2 * MAX_BYTES + 1024
 PROTOCOL_VERSION = 1
 # How long past its limit a tool may ignore the interrupt before the sandbox worker process exits.
 HARD_EXIT_GRACE_S = 2.0
+# Filters run before the tool's own clock starts. This limit plus the exit grace has to stay inside the
+# margin the host waits on top of the tool's limit, or the host gives up while the worker is still busy.
+PRE_TOOL_LIMIT_S = 2.0
 
 
 class WorkerRequest(BaseModel):
@@ -108,11 +111,21 @@ class Worker:
             return ExecResult(ok=False, error="worker_invalid_timeout")
         schema = cast(Any, tool.get_input_schema())
         args = schema.model_validate(req.args).model_dump()
-        pre = self.chain.run(FilterContext(Stage.PRE_TOOL, args, agent=req.agent, tool=spec.name,
-                                          tool_spec=spec, security_mode=self.security_mode, sandbox_mode="nemoclaw"))
+        checking = time.monotonic()
+        try:
+            with tool_deadline(PRE_TOOL_LIMIT_S, hard_exit_after_s=self.hard_exit_after_s):
+                pre = self.chain.run(FilterContext(Stage.PRE_TOOL, args, agent=req.agent, tool=spec.name,
+                                                   tool_spec=spec, security_mode=self.security_mode,
+                                                   sandbox_mode="nemoclaw"))
+                tainted = bool(instruction_in(pre.payload))
+        except ToolDeadlineExceeded:
+            return ExecResult(ok=False, error="worker_timeout")
+        # Nothing has been journalled or run yet, so the caller may safely retry after either refusal.
+        if time.monotonic() - checking > PRE_TOOL_LIMIT_S:
+            return ExecResult(ok=False, error="worker_timeout")
         if pre.action != Action.ALLOW or not isinstance(pre.payload, dict):
             return ExecResult(ok=False, error="worker_pre_tool_blocked")
-        if instruction_in(pre.payload):
+        if tainted:
             return ExecResult(ok=False, error="worker_taint_blocked")
         args = schema.model_validate(pre.payload).model_dump()
         if spec.side_effect != SideEffect.READ and not req.idempotency_key:
