@@ -1,0 +1,19 @@
+name: Security gate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  offline-security:
+    runs-on: ubuntu-latest
+    env:
+      ORCHESTRA_SECURITY_MODE: closed
+      LANGSMITH_TRACING: "false"
+      LANGSMITH_TEST_TRACKING: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: python scripts/security_gate.py
+      - run: python scripts/sync_third_party.py --check

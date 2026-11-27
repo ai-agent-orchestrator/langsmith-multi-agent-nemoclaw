@@ -1,0 +1,26 @@
+# Build with a reviewed immutable base, e.g. --build-arg PYTHON_BASE=<image>@sha256:<digest>.
+ARG PYTHON_BASE
+FROM ${PYTHON_BASE}
+ARG PYTHON_BASE
+RUN case "$PYTHON_BASE" in *@sha256:*) ;; *) echo 'A reviewed image digest is required'; exit 1 ;; esac
+WORKDIR /opt/orchestra
+COPY nemoclaw/requirements-worker.lock /opt/orchestra/requirements-worker.lock
+RUN python -m venv /opt/orchestra/venv \
+    && /opt/orchestra/venv/bin/pip install --no-cache-dir -r requirements-worker.lock \
+    && useradd --uid 10001 --create-home orchestra \
+    && mkdir -p /sandbox/workspace /sandbox/state \
+    && chown -R orchestra:orchestra /sandbox
+COPY orchestra /opt/orchestra/orchestra
+COPY domains /opt/orchestra/domains
+COPY orgs /opt/orchestra/orgs
+COPY third_party /opt/orchestra/third_party
+ENV ORCHESTRA_SECURITY_MODE=closed \
+    ORCHESTRA_SANDBOX=nemoclaw \
+    ORCHESTRA_WORKER_SANDBOX=orchestra-code \
+    ORCHESTRA_WORKER_ORG=/opt/orchestra/orgs/claude_dev.yaml \
+    ORCHESTRA_WORKER_JOURNAL=/sandbox/state/worker.sqlite \
+    ORCHESTRA_WORKSPACE=/sandbox/workspace \
+    NEMOCLAW_DISABLE_TELEMETRY=1 \
+    LANGSMITH_TRACING=false
+USER 10001:10001
+CMD ["/opt/orchestra/venv/bin/python", "-m", "orchestra.sandbox.nemoclaw.worker"]

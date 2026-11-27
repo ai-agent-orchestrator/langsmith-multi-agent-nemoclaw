@@ -1,0 +1,16 @@
+id: concert_swap
+title: 여행 도메인을 콘서트 도메인으로 교체
+org: orgs/concert_demo.yaml
+request: 서울 콘서트 두 장의 가격을 알려줘
+invariants: true
+script:
+  concert_director:
+    - tool_calls: [{name: transfer_to_concert_catalog}]
+    - content: 두 장 가격은 100000원입니다. 결제는 진행하지 않았습니다.
+  concert_catalog:
+    - tool_calls: [{name: search_concerts, args: {city: 서울}}]
+    - tool_calls: [{name: quote_tickets, args: {concert_id: concert-1, count: 2}}]
+    - content: 두 장 가격은 100000원입니다.
+expect:
+  agents_in_order: [concert_director, concert_catalog]
+  flags: {blocked: false}
