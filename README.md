@@ -7,57 +7,83 @@ A design-and-implementation repo for organizing specialist agents (weather, rest
 **NemoClaw/OpenShell sandboxes** that isolate risky actions (payments, code execution).
 Real compiled graphs run end to end from scenarios **without any LLM, network, or NemoClaw**.
 
-> **Status (2026-11-23, current implementation stack)** — Core, packaging, catalog, offline LangSmith,
-> C13/C14 diagnostics, v1 backend, C16–C19 safeguards, and C22 local ledger persistence are implemented.
-> Real LLMs, a real LangSmith server, and **real NemoClaw integration were not verified in the authoring environment**
-> (see [NemoClaw supplement plan](#nemoclaw-in-this-repo)).
+**NemoClaw common problems** — [English](docs/NEMOCLAW_KNOWN_ISSUES.md) · [한국어](docs/NEMOCLAW_KNOWN_ISSUES.ko.md)
 
-| Doc | Contents |
+## NemoClaw worker sandbox — 12 isolation checks
+
+**Result: 12 / 12 PASS** on one real install (WSL2, NemoClaw v0.0.145, OpenShell 0.0.116, 2026-11-27).
+A probe runs inside the sandbox. Checks 1–8 and 12 *attempt* the action; 9–11 read the process identity and privilege flags.
+
+| # | Check | When it applies | Enforced by | Observed |
+|---|---|---|---|---|
+| | **Network** | | | |
+| 1 | `direct_tcp_refused` | Code opens a socket straight to the internet, bypassing the proxy | Sandbox network namespace | timeout |
+| 2 | `proxy_tunnel_refused` | Code asks the sandbox proxy for an HTTPS tunnel (`CONNECT`) to an unlisted host | Proxy policy: no rule for the host | `403` |
+| 3 | `proxy_http_refused` | Code sends plain HTTP to an unlisted host through the proxy | Proxy policy: no rule for the host | `403` |
+| | **Files** | | | |
+| 4 | `control_tmp_write` | Code writes a temporary file in `/tmp`. **Must succeed** (control case) | Allowed by the file policy | written, removed |
+| 5 | `write_var_tmp_refused` | Code writes to `/var/tmp`, world-writable but not in the policy | Landlock | `EACCES` |
+| 6 | `write_dev_shm_refused` | Code writes to shared memory `/dev/shm`, also not in the policy | Landlock | `EACCES` |
+| 7 | `write_code_refused` | Code tries to change the worker's own program in `/opt/orchestra` | File permissions, read-only in policy | `EACCES` |
+| 8 | `read_unlisted_refused` | Code opens a world-readable file outside the policy (`/var/lib/dpkg/status`) | Landlock | `EACCES` |
+| | **Privileges** | | | |
+| 9 | `not_root` | Every process the worker runs | Sandbox user | uid `10001` |
+| 10 | `no_capabilities` | Code needs a Linux capability (admin-level kernel right) | Empty effective capability set | `CapEff` 0 |
+| 11 | `no_new_privileges` | Code launches a setuid program to gain rights | Kernel `no_new_privs` flag | `1` |
+| 12 | `memfd_refused` | Code creates an in-memory file to execute without touching disk (`memfd_create`) | Syscall filter (seccomp) | `EPERM` |
+
+**Model route (checked separately): PASS, `no_route`.** OpenShell opens the tunnel to `inference.local` without any
+network rule. No inference route was configured, so requests reached no model. **If a route is configured for the
+sandbox's OpenShell workspace, sandbox code can call that model**; run the check again after any such change.
+
+Not covered: CPU and memory limits, isolation between sandboxes, leaks through DNS. The result describes that install
+and policy, not every NemoClaw version. Run it with
+[`scripts/nemoclaw_isolation_check.py`](scripts/nemoclaw_isolation_check.py); measured details are in
+[`docs/NEMOCLAW_REALITY.md`](docs/NEMOCLAW_REALITY.md) (Korean).
+
+## 1. What is implemented
+
+<p align="center">
+  <img src="docs/diagrams/implemented-flow-dark.png" width="780"
+       alt="Filter flow: before the model (pre_request, pre_model), before a tool runs (pre_tool, one-shot approval for COMMIT, direct tool or Fake sandbox), before anything leaves (post_tool, pre_response, masked trace)">
+</p>
+
+Any BLOCK stops the affected path. The sandbox in this flow is the local Fake runner. Normalization and taint rules
+are defense in depth, not a complete prompt-injection solution.
+
+## 2. Key design decisions
+
+| Decision | What it guarantees |
 |---|---|
-| [`docs/DESIGN.md`](docs/DESIGN.md) | Full design: architecture, specs, 24-feature LangSmith map, NemoClaw placement |
-| [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **Handoff**: what is done / remaining tasks C1–C15 / design deviations / constraints |
-| [`docs/NEMOCLAW_KNOWN_ISSUES.md`](docs/NEMOCLAW_KNOWN_ISSUES.md) | **NemoClaw known issues**: 15 common problems (hangs, locks, WSL2, policy, telemetry) with causes, workarounds and interview notes |
-| [`AGENTS.md`](AGENTS.md) | Working rules and PR template for Codex |
+| **Swappable domain packs** | Tools, agents, filters and scenarios live in `domains/*`; the core never imports a domain (test-enforced) |
+| **The server computes the amount** | The LLM never decides what is charged: the total comes from the holds |
+| **Three approval layers, one-shot** | No approval-ledger entry, no capture, even with all filters disabled; no answer means denial |
+| **Safe interrupt / resume** | Tool nodes re-run on resume, yet payment is captured exactly once (pinned by a test) |
+| **Fail closed** | A filter exception becomes BLOCK; sandbox mode without a runner aborts |
+| **Egress policy generated from declarations** | Duplicate host:port, wildcards, `access: full` and inference hosts are rejected; `closed` mode drops the LangSmith preset |
 
-## Quick start
+## 3. Division of work and what remains
 
-Use Python 3.11+ and install with `pip install -e ".[dev]"`.
-`requirements.txt` delegates to this same dependency definition. The `langsmith`
-extra names the SDK already needed by the compatibility API; `nemoclaw` and
-`claude-cli` are dependency-free extras for separately installed external CLIs.
-They do not install or verify those CLIs. Examples currently use repository data,
-so run them from this checkout. Tests exclude real-service markers by default;
-opt in explicitly with `pytest -m integration`, `-m langsmith`, or `-m nemoclaw`.
+| Area | Status |
+|---|---|
+| Specs/org chart/fan-out, filter chain + built-ins, tool wrapper, HITL, ScriptedChatModel | ✅ done |
+| Hierarchical graph/tools, service, travel + payment packs, simulation + 6 scenarios | ✅ offline |
+| NemoClaw policy generation/validation/drift/fail-closed, fake sandbox | ✅ done (real NemoClaw: see the last row) |
+| Packaging, legacy shims, immutable vendoring, frontmatter and 14-plugin catalog | ✅ C1–C5 |
+| hookify rules → existing filter stages | ✅ C9 |
+| 24-feature LangSmith map + offline `showcase` CLI | ✅ C11 offline; hosted/API+UI paths unverified |
+| CLI org/pattern/local trace options | ✅ C13 |
+| Claude tool mapping / `claude_dev` / adapters / additional domain scenarios | ⬜ C6–C8, C10; R4 + tool-count policy gate |
+| v1 backend (`langchain.agents.create_agent`), scenario parity | ✅ C15 (scripted models) |
+| Source-labelled contracts, approval binding, capability checks, inspection normalization/taint | ✅ C16–C19; rule-based defense in depth |
+| Memory / masked HMAC SQLite ledgers, local mock atomicity | ✅ C22; full workflow restart is not supported |
+| Playground trace / filter / approval-history tabs; Studio entry declaration | ✅ C14; `langgraph dev` unverified (CLI not installed) |
+| Real NemoClaw worker sandbox | 🟡 isolation checks 12/12 on one install; ⬜ CPU/memory limits, load, recovery after restart |
 
-```bash
-pip install -r requirements.txt
-python -m pytest -q tests                                   # offline regression suite
-python -I examples/simulate_hierarchical.py --list          # available scenarios
-python -I examples/simulate_hierarchical.py                 # Jeju trip + hotel hold + approved payment
-python -I examples/simulate_hierarchical.py --scenario jeju_payment_rejected
-python -I examples/simulate_hierarchical.py --scenario sandbox_egress_denied --mode graph
-python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress preset drift check
-```
+## Implementation details
 
-## What is implemented
-
-```mermaid
-flowchart LR
-  R[Request] --> G["pre_request · request gate"]
-  G --> M["pre_model · contracts / source / taint"]
-  M --> T["pre_tool · limits / policy"]
-  T --> C{COMMIT?}
-  C -->|yes| A[Bound one-shot approval]
-  C -->|no| S[Direct tool or Fake sandbox]
-  A --> S
-  S --> P["post_tool · masking / source / taint"]
-  P --> O["pre_response · masking"]
-  O --> V[Masked trace / playground]
-```
-
-Any BLOCK stops the affected path. The sandbox shown here is the local Fake runner;
-real NemoClaw execution is unverified. Normalization and taint rules are defense in
-depth, not a complete prompt-injection solution.
+<details>
+<summary><b>Contracts, backends, LangSmith, catalog and repository layout</b></summary>
 
 Message contracts require a source label (`user/tool/agent/system`) and bounded
 fields/nesting. The host maps explicit SDK roles to source labels; external
@@ -160,16 +186,15 @@ scenarios/*.yaml              6 scenarios shared by simulation and tests
 nemoclaw/presets/*.yaml       egress policies generated from ToolSpecs (CI drift check)
 ```
 
-### Key design decisions
-- **Swappable domains**: tools, agents, filters, and scenarios live in `domains/*`. The core never imports a domain (enforced by a test).
-- **The LLM never decides the amount**: `create_payment_intent(hold_ids)` computes the total server-side from holds.
-- **Layered approval**: amount filter -> `side_effect_policy` (COMMIT needs approval) -> **tool-wrapper last-line defense** (no approval-ledger entry, no capture, even with all filters disabled). Approvals are one-shot; no answer means denial.
-- **Safe interrupt/resume**: tool nodes re-execute on resume, yet the payment is captured exactly once (pinned by a test).
-- **Fail-closed**: a filter exception becomes BLOCK; sandbox mode without a runner aborts execution.
-- **Hierarchy bug fixed**: `langgraph_supervisor` adds a static `member->supervisor` edge per member, which woke the team lead mid-handoff; fixed with `_detach_to_supervisor`.
-- **NemoClaw egress policy is generated from declarations**: the same host:port opened in two sandboxes fails validation; inference-provider hosts, `access: full`, and wildcards are rejected; `closed` mode omits the LangSmith preset entirely.
+**Hierarchy bug fixed:** `langgraph_supervisor` adds a static `member->supervisor` edge per member, which woke the team lead mid-handoff; fixed with `_detach_to_supervisor`.
 
-### Sample run (`python -I examples/simulate_hierarchical.py`, payment segment)
+</details>
+
+<details>
+<summary><b>Sample run and scenarios</b></summary>
+
+**Sample run (`python -I examples/simulate_hierarchical.py`, payment segment)**
+
 Only routing is scripted; the **real graph, filter, approval, and sandbox code paths** all execute. Values are mock.
 
 ```text
@@ -223,22 +248,10 @@ Full flow: `travel_director -> planning_lead -> (weather_agent -> restaurant_age
 | `sandbox_egress_denied` | Payment host missing from policy -> sandbox denies egress -> no payment, operator-approval notice |
 | `handoff_oversized` | Oversized delegation contract is blocked before handoff |
 
-## Division of work and what remains
+</details>
 
-| Area | Status |
-|---|---|
-| Specs/org chart/fan-out, filter chain + built-ins, tool wrapper, HITL, ScriptedChatModel | ✅ done |
-| Hierarchical graph/tools, service, travel + payment packs, simulation + 6 scenarios | ✅ offline |
-| NemoClaw policy generation/validation/drift/fail-closed, fake sandbox | ✅ done (real NemoClaw integration ⬜) |
-| Packaging, legacy shims, immutable vendoring, frontmatter and 14-plugin catalog | ✅ C1–C5 |
-| hookify rules → existing filter stages | ✅ C9 |
-| 24-feature LangSmith map + offline `showcase` CLI | ✅ C11 offline; hosted/API+UI paths unverified |
-| CLI org/pattern/local trace options | ✅ C13 |
-| Claude tool mapping / `claude_dev` / adapters / additional domain scenarios | ⬜ C6–C8, C10; R4 + tool-count policy gate |
-| v1 backend (`langchain.agents.create_agent`), scenario parity | ✅ C15 (scripted models) |
-| Source-labelled contracts, approval binding, capability checks, inspection normalization/taint | ✅ C16–C19; rule-based defense in depth |
-| Memory / masked HMAC SQLite ledgers, local mock atomicity | ✅ C22; full workflow restart is not supported |
-| Playground trace / filter / approval-history tabs; Studio entry declaration | ✅ C14; `langgraph dev` unverified (CLI not installed) |
+<details>
+<summary><b>Playground and LangGraph Studio</b></summary>
 
 Run `python examples/playground.py` and open `http://127.0.0.1:8765`.
 The legacy demo remains the first tab. The three diagnostic tabs can run closed/Fake
@@ -252,11 +265,13 @@ the broader §9.4 design are not implemented by this C14 scope.
 and builds a scripted/Fake graph locally. `langgraph-cli` is absent here, so running
 `langgraph dev` and viewing Studio remain unverified.
 
+</details>
+
 ## NemoClaw in this repo
 
 This repo covers the part of NemoClaw you can **see and run offline**: `ToolSpec` egress declarations -> preset generation, validation and drift check (`scripts/gen_nemoclaw_presets.py`), the security-mode <-> preset mapping (`closed` removes the LangSmith egress preset entirely), and a fake sandbox that makes the `sandbox_egress_denied` scenario show the multi-agent -> LangSmith -> NemoClaw flow end to end.
 
-**Not covered here:** executing inside a real sandbox and deeper security hardening are maintained outside this repository. Real NemoClaw behaviour is unverified in this repo; CLI and policy schemas vary by NemoClaw version.
+**Real sandbox:** this branch also has the worker sandbox; see the isolation checks above and [`docs/NEMOCLAW_REALITY.md`](docs/NEMOCLAW_REALITY.md). CLI and policy schemas vary by NemoClaw version.
 
 ---
 
