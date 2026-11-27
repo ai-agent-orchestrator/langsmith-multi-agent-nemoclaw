@@ -14,6 +14,8 @@ class ExecRequest(BaseModel):
     trace_headers: dict[str, str] = Field(default_factory=dict)
     timeout_s: float = 60.0
     idempotency_key: Optional[str] = None
+    agent: Optional[str] = None                    # 워커가 이 이름의 grant 를 다시 검사한다
+    capability_token: Optional[str] = Field(default=None, repr=False)  # 러너가 전송 직전에 발급
     # 같은 프로세스에서 실행하는 러너(Fake/Local)만 사용. 직렬화·전송 대상 아님.
     local_fn: Optional[Callable[..., Any]] = Field(default=None, exclude=True)
 

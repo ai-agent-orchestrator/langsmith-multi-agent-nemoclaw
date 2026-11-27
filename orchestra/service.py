@@ -8,13 +8,22 @@ from contextlib import nullcontext
 from typing import Any, Callable, ContextManager, Optional
 
 from langchain_core.messages import BaseMessage
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
+from .backends.base import ModelBlocked
 from .filters.base import Action, FilterContext, Stage
 from .patterns.hierarchical_graph import BuiltApp
 from .messages import MessageContractBlocked
 from .hitl import ApprovalBindingBlocked
+from .security.decision import code_for_block
 from .taint import ToolTaintBlocked
+
+
+def _denied(answer: str, by: Optional[str], reason: str, thread_id: str) -> dict:
+    """차단 응답의 단일 형태. reason_code 는 이벤트 로그에 남는 값과 같다."""
+    return {"answer": answer, "blocked": True, "reason": reason, "reason_code": code_for_block(by, reason).value,
+            "thread_id": thread_id, "interrupt": None}
 
 
 def _text(msg: Any) -> str:
@@ -49,8 +58,8 @@ class OrchestraService:
         answer = _text(result["messages"][-1]) if result.get("messages") else ""
         out = self.app.chain.run(FilterContext(Stage.PRE_RESPONSE, answer, org=self.app.org.name))
         if out.action == Action.BLOCK:
-            return {"answer": f"차단: 응답 정책 위반 ({out.reason})", "blocked": True, "reason": out.reason,
-                    "thread_id": thread_id, "interrupt": None}
+            self.app.runtime.events.add("blocked", stage="pre_response", reason=out.reason, by=out.blocked_by)
+            return _denied(f"차단: 응답 정책 위반 ({out.reason})", out.blocked_by, out.reason, thread_id)
         return {"answer": out.payload, "blocked": False, "reason": "", "thread_id": thread_id, "interrupt": None}
 
     def ask(self, question: str, thread_id: Optional[str] = None, *, user_id: str = "anonymous") -> dict:
@@ -59,29 +68,36 @@ class OrchestraService:
                                   dedupe="request")
         if gate.action == Action.BLOCK:
             self.app.runtime.events.add("blocked", stage="pre_request", reason=gate.reason, by=gate.blocked_by)
-            return {"answer": f"차단: 보안 정책 위반 요청입니다 ({gate.reason})", "blocked": True,
-                    "reason": gate.reason, "thread_id": thread_id, "interrupt": None}
+            return _denied(f"차단: 보안 정책 위반 요청입니다 ({gate.reason})", gate.blocked_by, gate.reason, thread_id)
         return self._invoke({"messages": [("user", question)]}, thread_id, user_id)
 
     def resume(self, thread_id: str, decision: bool | dict, *, user_id: str = "anonymous") -> dict:
         """interrupt 에 대한 사용자 응답으로 그래프를 재개한다."""
+        stop = self.app.runtime.security_control.guard("")
+        if stop is not None:  # 대기 중인 interrupt 는 건드리지 않아 해제 후 다시 재개할 수 있다.
+            return self._stopped(stop, "security_control", "차단: 운영자 중단 상태입니다", thread_id)
         return self._invoke(Command(resume=decision), thread_id, user_id)
+
+    def _stopped(self, reason: str, by: str, answer: str, thread_id: str) -> dict:
+        self.app.runtime.events.add("blocked", by=by, reason=reason)
+        return _denied(answer, by, reason, thread_id)
 
     def _invoke(self, payload: Any, thread_id: str, user_id: str = "anonymous") -> dict:
         try:
             with self.scope():
                 result = self.app.graph.invoke(payload, self._cfg(thread_id, user_id))
         except ToolTaintBlocked:
-            self.app.runtime.events.add("blocked", by="tool_taint", reason="tool_instruction_blocked")
-            return {"answer": "차단: 툴 결과의 지시문 전파", "blocked": True, "reason": "tool_instruction_blocked",
-                    "thread_id": thread_id, "interrupt": None}
+            return self._stopped("tool_instruction_blocked", "tool_taint", "차단: 툴 결과의 지시문 전파", thread_id)
         except MessageContractBlocked:
-            self.app.runtime.events.add("blocked", by="message_contract", reason="message_contract_blocked")
-            return {"answer": "차단: 메시지 계약 위반", "blocked": True, "reason": "message_contract_blocked",
-                    "thread_id": thread_id, "interrupt": None}
+            return self._stopped("message_contract_blocked", "message_contract", "차단: 메시지 계약 위반", thread_id)
+        except GraphRecursionError:
+            return self._stopped("recursion_limit", "recursion_limit", "차단: 에이전트 반복 한도를 넘었습니다", thread_id)
+        except ModelBlocked:
+            reason = self.app.runtime.security_control.guard("") or "model_blocked"
+            return self._stopped(reason, "pre_model", "차단: 모델 호출 정책 위반", thread_id)
         except ApprovalBindingBlocked:
-            return {"answer": "차단: 승인 바인딩이 유효하지 않습니다", "blocked": True, "reason": "approval_binding_blocked",
-                    "thread_id": thread_id, "interrupt": None}
+            # 차단 이벤트는 예외를 던진 tool_wrapper 가 이미 남겼다.
+            return _denied("차단: 승인 바인딩이 유효하지 않습니다", "approval_binding", "approval_binding_blocked", thread_id)
         return self._finish(result, thread_id)
 
 

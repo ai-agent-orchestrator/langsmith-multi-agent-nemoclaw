@@ -1,0 +1,51 @@
+# Image for a plain OpenShell sandbox (`openshell sandbox create --from <directory>`). It is not a
+# NemoClaw agent image, so `nemoclaw onboard --from` cannot use it. OpenShell builds with the
+# Dockerfile's directory as context and passes no build args:
+# scripts/nemoclaw_worker_sandbox.py stages such a directory with the reviewed base digest filled in.
+ARG PYTHON_BASE
+FROM ${PYTHON_BASE}
+ARG PYTHON_BASE
+RUN case "$PYTHON_BASE" in *@sha256:*) ;; *) echo 'A reviewed image digest is required'; exit 1 ;; esac
+# OpenShell needs iproute2 for the sandbox network namespace.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/orchestra
+COPY nemoclaw/requirements-worker.lock /opt/orchestra/requirements-worker.lock
+RUN python -m venv /opt/orchestra/venv \
+    && /opt/orchestra/venv/bin/pip install --no-cache-dir -r requirements-worker.lock \
+    && /opt/orchestra/venv/bin/python -c "import pathlib, sysconfig; pathlib.Path(sysconfig.get_paths()['purelib'], 'orchestra.pth').write_text('/opt/orchestra\\n')" \
+    && printf 'export %s\n' \
+        ORCHESTRA_SECURITY_MODE=closed \
+        ORCHESTRA_SANDBOX=nemoclaw \
+        ORCHESTRA_WORKER_SANDBOX=orchestra-code \
+        ORCHESTRA_WORKER_ORG=/opt/orchestra/orgs/claude_dev.yaml \
+        ORCHESTRA_WORKER_JOURNAL=/sandbox/state/worker.sqlite \
+        ORCHESTRA_WORKER_CAPABILITY_KEY_FILE=/sandbox/state/capability.key \
+        ORCHESTRA_WORKSPACE=/sandbox/workspace \
+        NEMOCLAW_DISABLE_TELEMETRY=1 \
+        LANGSMITH_TRACING=false \
+        > /etc/profile.d/orchestra-worker.sh \
+    && groupadd --gid 10001 sandbox \
+    && useradd --uid 10001 --gid sandbox --no-create-home --home-dir /sandbox --shell /bin/bash sandbox \
+    && mkdir -p /sandbox/workspace /sandbox/state \
+    && chown -R sandbox:sandbox /sandbox
+COPY orchestra /opt/orchestra/orchestra
+COPY domains /opt/orchestra/domains
+COPY orgs /opt/orchestra/orgs
+COPY third_party /opt/orchestra/third_party
+# OpenShell starts exec/SSH sessions with a cleared environment, so image ENV does not reach them;
+# the login shell reads the same values from /etc/profile.d above (not yet checked on a real install).
+ENV ORCHESTRA_SECURITY_MODE=closed \
+    ORCHESTRA_SANDBOX=nemoclaw \
+    ORCHESTRA_WORKER_SANDBOX=orchestra-code \
+    ORCHESTRA_WORKER_ORG=/opt/orchestra/orgs/claude_dev.yaml \
+    ORCHESTRA_WORKER_JOURNAL=/sandbox/state/worker.sqlite \
+    ORCHESTRA_WORKER_CAPABILITY_KEY_FILE=/sandbox/state/capability.key \
+    ORCHESTRA_WORKSPACE=/sandbox/workspace \
+    NEMOCLAW_DISABLE_TELEMETRY=1 \
+    LANGSMITH_TRACING=false
+# The working directory becomes the sandbox workspace, which the policy makes writable.
+WORKDIR /sandbox
+USER sandbox
+CMD ["/opt/orchestra/venv/bin/python", "-m", "orchestra.sandbox.nemoclaw.worker"]

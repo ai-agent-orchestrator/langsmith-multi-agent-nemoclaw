@@ -1,2 +1,3 @@
 # Vendor integrity uses original Git blob bytes across Windows/Linux checkouts.
 third_party/** -text
+*.sh text eol=lf

@@ -3,10 +3,18 @@ from __future__ import annotations
 
 import time
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from .hitl import ApprovalRecord
 from .ledger import LedgerStore, MemoryLedgerStore, create_ledger_store, LedgerConfigurationError
+from .security.audit_events import AuditUnavailable, audit_record
+from .security.control import SecurityControl
+from .security.decision import event_reason_code
+from .security.egress_isolation import EgressIsolationGuard
+
+if TYPE_CHECKING:
+    from .security.audit import AuditLog
 
 
 @dataclass
@@ -29,6 +37,9 @@ class EventLog:
         self.capture_trace = capture_trace
         self._explicit_store = store is not None
         self.scope = scope
+        self.audit: Optional[AuditLog] = None
+        # 저장한 이벤트를 알려 준다(관측용). 기록 결과를 바꾸지 못한다.
+        self.listeners: list[Callable[[str, dict[str, Any]], None]] = []
         self.store = store or MemoryLedgerStore()
         self.bind_store(self.store)
 
@@ -47,13 +58,31 @@ class EventLog:
         self._events = [Event(e["kind"], e["data"], e["seq"]) for e in store.read_events(self.scope)]
 
     def add(self, kind: str, *, dedupe_key: Optional[str] = None, **data: Any) -> None:
-        if dedupe_key is not None and not self.store.persistent:
-            if dedupe_key in self._seen:
-                return
-            self._seen.add(dedupe_key)
-        saved = self.store.append_event(self.scope, kind, data, dedupe_key)
+        """Record an event; with an audit log attached, both writes succeed or the event is rolled back."""
+        local_dedupe = dedupe_key is not None and not self.store.persistent
+        if local_dedupe and dedupe_key in self._seen:
+            return
+        # 차단 지점마다 붙이지 않고 여기서 붙여, 새 차단 경로도 같은 계약을 따르게 한다.
+        code = event_reason_code(kind, data)
+        if code is not None:
+            data.setdefault("reason_code", code)
+        with nullcontext() if self.audit is None else self.store.transaction():
+            saved = self.store.append_event(self.scope, kind, data, dedupe_key)
+            if saved is not None and self.audit is not None:
+                try:
+                    self.audit.append(audit_record(kind, saved["seq"], data))
+                except Exception:
+                    raise AuditUnavailable("audit_append_failed") from None
+        if local_dedupe:
+            self._seen.add(str(dedupe_key))
         if saved is not None and not self.store.persistent:
             self._events.append(Event(kind, data, seq=saved["seq"]))
+        if saved is not None:
+            for listener in self.listeners:
+                try:
+                    listener(kind, dict(data))
+                except Exception:  # noqa: BLE001, S110 - observation must not change enforcement
+                    pass
 
     def of(self, *kinds: str) -> list[Event]:
         return [e for e in self.events if e.kind in kinds]
@@ -99,7 +128,7 @@ class ApprovalLedger:
             key = record.key
             if key in self._consumed or not self.store.grant(record, time.time() if now is None else now):
                 return False
-            self._records[key] = record.model_copy(update={"decided": True})
+            self._records[key] = self.store.sign(record)
             self._granted.add(key)
             self.history.append({"key": key, "decision": True, "by": record.user_id})
             self.store.append_event("approval-history", "approval", {
@@ -147,6 +176,10 @@ class Runtime:
     graph: Any = field(default=None, repr=False)
     quarantined_threads: set[str] = field(default_factory=set, repr=False)
     ledger_store: LedgerStore | None = field(default=None, repr=False)
+    # 운영자는 security_control.reset(team) 으로만 열린 팀 차단기를 닫는다.
+    security_control: SecurityControl = field(default_factory=SecurityControl, repr=False)
+    # 같은 샌드박스의 egress 거부가 반복되면 격리한다. 해제는 사람이 egress_guard.release(...) 로만 한다.
+    egress_guard: EgressIsolationGuard = field(default_factory=EgressIsolationGuard, repr=False)
 
     def __post_init__(self) -> None:
         """Share one explicitly selected store across runtime services; default remains memory."""
@@ -162,3 +195,12 @@ class Runtime:
         self.approvals.bind_store(store)
         self.events.bind_store(store)
         self.services["ledger_store"] = store
+        self.bind_audit()
+        if self.egress_guard.on_event is None:
+            self.egress_guard.on_event = lambda kind, data: self.events.add(kind, **data)
+
+    def bind_audit(self) -> None:
+        """Attach `services["audit_log"]` (an AuditLog) to the event log when the operator provides one."""
+        audit = self.services.get("audit_log")
+        if audit is not None:
+            self.events.audit = audit

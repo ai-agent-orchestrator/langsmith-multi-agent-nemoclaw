@@ -6,7 +6,7 @@ Back to the [README](../README.md).
 
 This repo covers the part of NemoClaw you can **see and run offline**: `ToolSpec` egress declarations -> preset generation, validation and drift check (`scripts/gen_nemoclaw_presets.py`), the security-mode <-> preset mapping (`closed` removes the LangSmith egress preset entirely), and a fake sandbox that makes the `sandbox_egress_denied` scenario show the multi-agent -> LangSmith -> NemoClaw flow end to end.
 
-**Not covered on this branch:** executing inside a real sandbox. The worker sandbox work is on branch [`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli); see the isolation checks in the [README](../README.md). CLI and policy schemas vary by NemoClaw version.
+**Real sandbox:** the repository includes the worker sandbox; see the isolation checks in the [README](../README.md) and [`docs/NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md). CLI and policy schemas vary by NemoClaw version.
 
 ---
 
@@ -21,8 +21,10 @@ amount, expiry and request/thread ID with a full SHA-256 key. Set
 `user_id=` to both OrchestraService.ask and resume. Legacy calls default to
 `anonymous`; this is compatibility, not authentication. Checkpointed approval
 payloads preserve the original deadline across interrupt re-execution. The ledger
-atomically claims the grant before execution. Signature fields are reserved only;
-no signing, persistence, or hash-chain audit was added.
+atomically claims the grant before execution. An approved binding is signed with
+HMAC-SHA256 by the ledger store (a random per-instance key in memory mode, the
+ledger key with SQLite); a stored row without a valid signature is rejected, so
+approvals recorded before signing existed must be approved again.
 
 ### Delegation capabilities (C18)
 
@@ -120,8 +122,9 @@ retry old requests across key epochs. Inspect recorded receipts and reconcile
 pending requests before enabling new work; no automatic re-keying or recovery of
 raw inputs is implemented. Keep old secrets out of the database and version control.
 
-One masked `append_event` hook is available for future signature/chain integration;
-its default is a no-op. No signature or hash chain is implemented. These guarantees
+One masked `append_event` hook is available for integrations; its default is a no-op,
+and the ledger's event rows are not hash-chained (use the optional audit log for
+that). These guarantees
 cover the local mock/Fake path. SQLite COMMIT rejects nonparticipating payment
 providers and remote sandbox transports. Graph checkpoints, holds, model queues,
 and actual payment-provider effects are not made durable or transactionally coupled

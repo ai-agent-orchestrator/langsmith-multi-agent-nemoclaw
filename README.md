@@ -8,7 +8,7 @@
 
 ## NemoClaw sandbox — 12 / 12 isolation checks
 
-Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · [check script](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/blob/21-nemoclaw-cli/scripts/nemoclaw_isolation_check.py)
+Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · [check script](scripts/nemoclaw_isolation_check.py)
 
 | # | Tried inside the sandbox | Stopped by | Result |
 |---|---|---|---|
@@ -50,20 +50,22 @@ Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · 
 | **An approval works once** | Bound to arguments, amount, user and expiry | [test](tests/test_approval_binding.py) |
 | **Resume never charges twice** | The tool node re-runs; capture happens once | [test](tests/test_simulation_golden.py) |
 | **Network rules come from code** | Generated from tool declarations; wildcards and duplicate hosts fail | [test](tests/test_policy.py), CI |
-| **Isolation is measured** | A probe attempts each action on a real install | [script](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/blob/21-nemoclaw-cli/scripts/nemoclaw_isolation_check.py) |
+| **Isolation is measured** | A probe attempts each action on a real install | [script](scripts/nemoclaw_isolation_check.py) |
 
 ## 3. Division of work and what remains
 
 | Area | Status |
 |---|---|
-| Hierarchy, 5-stage filters, approval, mock payment, 6 scenarios | ✅ offline |
+| Hierarchy, 5-stage filters, approval, mock payment, 9 scenarios | ✅ offline |
 | LangSmith, 24 features | ✅ offline · ⬜ real server |
 | NemoClaw egress policy generation | ✅ offline |
-| NemoClaw worker sandbox ([branch](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli)) | ✅ real install |
+| NemoClaw worker: read-only tools, timeout reply, isolation | ✅ real install |
+| Tool time limit, external stop file | ✅ offline |
 | Real LLM | ⬜ |
-| Sandbox CPU / memory limits, load, restart (on the 21 branch) | ✅ offline · ⬜ real install |
-| Cross-sandbox and DNS-leak tests | ⬜ |
-| Claude tool adapters, more scenarios | ⬜ |
+| Egress isolation, plugin intake, refusal codes in traces | ✅ offline |
+| Sandbox CPU / memory limits, load, restart, DNS and neighbour checks | ✅ offline · ⬜ real install |
+| File upload into the sandbox | ⬜ |
+| Write and shell tools, Claude tool adapters, more scenarios | ⬜ |
 
 ## Implementation details
 
@@ -102,6 +104,21 @@ receiver; remote mutations are explicitly recorded offline. The payment safety
 gate fails CI on an executed COMMIT without matching approval evidence.
 See [LangSmith setup and verified limits](docs/langsmith-ui-setup.md) for service
 hook integration, Prompt Hub fallbacks, UI procedures and unsupported capabilities.
+
+### Operator stops and audit
+
+`ORCHESTRA_KILL_SWITCH=1` is read on every call and stops new model and tool calls.
+A running process cannot see a changed environment, so to stop it from outside set
+`ORCHESTRA_KILL_SWITCH_FILE=/absolute/path/stop` before it starts: while anything exists
+at that path, new calls are blocked, and removing it releases them. A relative path, a
+missing parent directory or a path that cannot be checked also blocks. A call already
+running is not interrupted by the stop; it ends or reaches its time limit. Keep the
+directory writable only by operators, outside any workspace an agent can write to.
+Five consecutive blocked tool decisions open a team's circuit; successes do not
+close it, only `runtime.security_control.reset(team)` does. Passing
+`services={"audit_log": AuditLog(path, key)}` writes every runtime event to the HMAC
+hash chain: identifier-like fields stay readable, everything else is stored as a
+digest, and an event whose audit write fails is rolled back and raises.
 
 Third-party snapshots are pinned in `third_party/LOCK.json` with per-file SHA-256
 hashes. Run `python scripts/sync_third_party.py --check` without network access to

@@ -2,7 +2,7 @@
 
 **English** | [한국어](NEMOCLAW_KNOWN_ISSUES.ko.md)
 
-> The scripts and code referenced here (`scripts/nemoclaw_*.sh`, `orchestra/sandbox/nemoclaw/cli.py`, `tests/fixtures/nemoclaw/`) live on the [`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli) branch.
+> The scripts and code referenced here (`scripts/nemoclaw_*.sh`, `orchestra/sandbox/nemoclaw/cli.py`, `tests/fixtures/nemoclaw/`) are in this repository.
 
 > Baseline: **nemoclaw v0.0.145 / openshell 0.0.116**, WSL2 Ubuntu 26.04 + Docker Desktop, sandbox `my-assistant` (OpenClaw, ollama `qwen3:1.7b`, GPU).
 > Evidence comes from three places: ① measurements on 2026-11-27 (`scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`), ② the NemoClaw v0.0.145 source (`NVIDIA/NemoClaw` tag `v0.0.145`, commit `6f36fef`), ③ public issues and official docs.
@@ -136,9 +136,16 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # stop hung CLI processes + ren
 | Policy replacement risk | No `policy set`; changes are one approved `policy add --from-file … --yes` | `cli.py`, `orchestra/security/policy_change.py` |
 | Telemetry | `NEMOCLAW_DISABLE_TELEMETRY=1` in the child environment | `cli.py` `_child_env` |
 | Operational diagnosis | Install probe, hang diagnosis, lock diagnosis and cleanup | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
+| One `exec` per call | Optional persistent worker (`NEMOCLAW_TRANSPORT=ssh_stream`): start it once over OpenShell SSH and exchange one JSON line per request. On failure the session is killed and the request is **not resent** **[measured: probe round trip; restart and timeout are not verified on a real install]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1·§3.2](NEMOCLAW_REALITY.md) |
+| Custom images | `nemoclaw onboard --from` needs an image containing the NemoClaw runtime → the worker uses `openshell sandbox create --from` **[measured: create, key install, worker probe; network blocking not verified]** | `scripts/nemoclaw_worker_sandbox.py`, [REALITY §3.2](NEMOCLAW_REALITY.md) |
+| Empty network policy | `policy get` omits an empty `network_policies` → read as "no rules" only for OpenShell output **[source]** | `orchestra/sandbox/nemoclaw/live.py` `parse_policy` |
 | Regression prevention | Tests built on real CLI output fixtures | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
-Still to do: a long-lived worker execution path, in-sandbox second-line filters (N3), and measuring the custom preset key format (`nemoclaw_custom__…`).
+`nemoclaw <sb> exec` runs inside both locks from section 2 until the remote command ends **[source]**, and the command starts only after piped input has been read to the end (OpenShell 0.0.116) **[source]**, so it cannot host a long-lived worker.
+
+Limits of the persistent worker: requests to one sandbox run one at a time. Whether closing the SSH session on a timeout also stops a tool already running in the sandbox is unverified. The older one-call path (`stdio_via_cli`) can put the working directory first on `sys.path` (the persistent worker blocks this with `-P`).
+
+Still to do: verifying persistent-worker restart and forced exit on a real install, and measuring the custom preset key format (`nemoclaw_custom__…`).
 
 ---
 
@@ -186,4 +193,4 @@ Still to do: a long-lived worker execution path, in-sandbox second-line filters 
 - NemoClaw v0.0.145 source: `src/lib/state/registry/lock.ts`, `src/lib/state/mcp-lifecycle-lock-acquisition.ts`, `src/lib/state/mcp-lifecycle-lock-identity.ts`, `src/lib/actions/sandbox/lifecycle/lock.ts`, `src/lib/cli/nemoclaw-oclif-command.ts`, `src/commands/sandbox/exec.ts`, `src/lib/actions/sandbox/inference-invocation-probe.ts`, `docs/reference/troubleshooting.mdx`
 - Issues: [#14070](https://github.com/NVIDIA/NemoClaw/issues/14070) · [#10663](https://github.com/NVIDIA/NemoClaw/issues/10663) · [#12281](https://github.com/NVIDIA/NemoClaw/issues/12281) · [#11903](https://github.com/NVIDIA/NemoClaw/issues/11903) · [#11132](https://github.com/NVIDIA/NemoClaw/issues/11132) · [#10461](https://github.com/NVIDIA/NemoClaw/issues/10461) · [#9746](https://github.com/NVIDIA/NemoClaw/issues/9746) · [#13017](https://github.com/NVIDIA/NemoClaw/issues/13017) · [#9737](https://github.com/NVIDIA/NemoClaw/issues/9737) · [#9604](https://github.com/NVIDIA/NemoClaw/issues/9604) · [#9109](https://github.com/NVIDIA/NemoClaw/issues/9109) · [#208](https://github.com/NVIDIA/NemoClaw/issues/208)
 - Docs: [Troubleshooting](https://docs.nvidia.com/nemoclaw/reference/troubleshooting) · [CLI Commands Reference](https://docs.nvidia.com/nemoclaw/latest/reference/commands) · [Create Custom Policy Presets](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/network-policy/configure-policies/create-custom-policy-presets) · [Configure Inference Timeouts](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/inference/manage-inference/configure-inference-timeouts) · [Release notes 2026-11-03 (v0.0.141)](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/release-notes/2026/11/3)
-- Measurement records: local probe output folders (not committed); fixtures: `tests/fixtures/nemoclaw/` on the `21-nemoclaw-cli` branch.
+- Measurement records: local probe output folders (not committed); fixtures: `tests/fixtures/nemoclaw/`.

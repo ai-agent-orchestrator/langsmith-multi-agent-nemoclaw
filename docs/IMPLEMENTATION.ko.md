@@ -18,7 +18,7 @@ python scripts/gen_nemoclaw_presets.py --check              # NemoClaw egress pr
 
 이 저장소는 NemoClaw 중 **오프라인에서 보고 실행할 수 있는 부분**만 다룬다: `ToolSpec`의 egress 선언 → preset 생성·검증·drift 검사(`scripts/gen_nemoclaw_presets.py`), 보안 모드↔preset 대응(`closed`는 LangSmith egress preset 자체를 만들지 않음), 그리고 Fake 샌드박스로 `sandbox_egress_denied` 시나리오에서 멀티에이전트 → LangSmith → NemoClaw 흐름을 끝까지 확인하는 것.
 
-**이 브랜치에서 다루지 않는 것:** 실제 샌드박스 실행. 워커 샌드박스는 [`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli) 브랜치에 있고, 격리 점검 결과는 [README](../README.ko.md)에 있다. CLI·정책 스키마는 NemoClaw 버전에 따라 다르다.
+**실제 샌드박스:** 이 저장소에는 워커 샌드박스가 있다. 격리 점검 결과는 [README](../README.ko.md), 측정 기록은 [`NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md)에 있다. CLI·정책 스키마는 NemoClaw 버전에 따라 다르다.
 
 ---
 

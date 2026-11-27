@@ -17,8 +17,9 @@ approval/resume, filters, fake sandbox and SDK trace HTTP requests are real.
 Requests terminate at an ephemeral loopback receiver. Other SDK mutations are
 recorded by an explicitly named `OfflineClient`; a recording is not evidence that
 a hosted endpoint accepted a request. Tests also forbid non-loopback sockets.
-Evaluation calls the real SDK with `upload_results=False` and evaluator tracing
-disabled; its client is explicitly bound to loopback even though no upload is requested.
+Offline evaluation scores local examples in process; it does not call the SDK's
+`evaluate` and constructs no client. Hosted upload needs `offline=False` with an open
+client and is refused in `closed` mode.
 
 The manifest lists all 24 design rows, their commands, and where to inspect them.
 Inspect each result's status: missing judge models and unavailable APIs are not
@@ -68,7 +69,7 @@ future real-account verification; no screenshot is presented as already verified
 | 8 | `feedback --user --offline`, `user_feedback_token` | Explicit run's presigned `user_score` token. Do not publish tokens in logs. |
 | 9 | `dataset push --offline`, `scenario_examples` / `push_dataset(tag=...)` | Datasets → orchestra-scenarios: inputs, expected flags/trajectory, metadata and version tag. |
 | 10 | `dataset from-runs --offline`, `from_runs` | Filter low feedback before upload to orchestra-regressions; retain source_run_id. |
-| 11 | `eval --offline`, `sdk_evaluate` | Local ExperimentResults; hosted uploads require offline=False explicitly. |
+| 11 | `eval --offline`, `sdk_evaluate` | Local score rows (no SDK experiment); hosted uploads require offline=False and an open client. |
 | 12 | `eval --evaluators all --offline` | payment_safety, trajectory_match, tool_args_valid, security_block, pii_leak, latency_budget, pass_rate. `llm_judge` requires an injected callable and uses the original grader prompt. |
 | 13 | `pairwise --a hierarchical --b supervisor --offline` | Without a comparator model the command reports unavailable. `compare_targets` executes supplied targets; `sdk_compare` compares two hosted experiments using `langsmith.evaluation.evaluate_comparative`. Injected comparator uses the original comparator prompt. |
 | 14 | `pytest -m langsmith --langsmith-output` | Opt-in test in tests/eval; `langsmith.testing.log_*` calls are guarded. Install the SDK's pytest extra for its rich display. Default tests exclude the marker. |

@@ -8,7 +8,7 @@
 
 ## NemoClaw 샌드박스 — 격리 점검 12 / 12
 
-실설치 · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · [점검 스크립트](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/blob/21-nemoclaw-cli/scripts/nemoclaw_isolation_check.py)
+실설치 · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · [점검 스크립트](scripts/nemoclaw_isolation_check.py)
 
 | # | 샌드박스 안에서 시도 | 막는 것 | 결과 |
 |---|---|---|---|
@@ -42,20 +42,22 @@
 | **승인은 한 번만** | 인자·금액·사용자·만료에 묶임 | [테스트](tests/test_approval_binding.py) |
 | **재개해도 두 번 결제하지 않는다** | 툴 노드는 재실행, capture 는 1번 | [테스트](tests/test_simulation_golden.py) |
 | **네트워크 규칙은 코드에서 생성** | 툴 선언에서 생성, 와일드카드·중복 호스트는 실패 | [테스트](tests/test_policy.py), CI |
-| **격리는 실측한다** | 실설치에서 점검 프로그램이 직접 시도 | [스크립트](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/blob/21-nemoclaw-cli/scripts/nemoclaw_isolation_check.py) |
+| **격리는 실측한다** | 실설치에서 점검 프로그램이 직접 시도 | [스크립트](scripts/nemoclaw_isolation_check.py) |
 
 ## 3. 분담과 남은 작업
 
 | 영역 | 상태 |
 |---|---|
-| 계층 구조, 5단계 필터, 승인, mock 결제, 시나리오 6개 | ✅ 오프라인 |
+| 계층 구조, 5단계 필터, 승인, mock 결제, 시나리오 9개 | ✅ 오프라인 |
 | LangSmith 24개 기능 | ✅ 오프라인 · ⬜ 실제 서버 |
 | NemoClaw egress 정책 생성 | ✅ 오프라인 |
-| NemoClaw 워커 샌드박스 ([브랜치](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli)) | ✅ 실설치 |
+| NemoClaw 워커: 읽기 전용 툴, 시간 초과 응답, 격리 | ✅ 실설치 |
+| 툴 시간 제한, 외부 중지 파일 | ✅ 오프라인 |
 | 실제 LLM | ⬜ |
-| 샌드박스 CPU·메모리 상한, 부하, 재시작 (21 브랜치) | ✅ 오프라인 · ⬜ 실설치 |
-| 샌드박스 간·DNS 유출 점검 | ⬜ |
-| Claude 툴 어댑터, 추가 시나리오 | ⬜ |
+| egress 격리, 플러그인 도입 게이트, 차단 사유 코드 트레이스 | ✅ 오프라인 |
+| 샌드박스 CPU·메모리 상한, 부하, 재시작, DNS·이웃 점검 | ✅ 오프라인 · ⬜ 실설치 |
+| 샌드박스에 파일 올리기 | ⬜ |
+| 쓰기·셸 툴, Claude 툴 어댑터, 추가 시나리오 | ⬜ |
 
 ## 구현 상세
 

@@ -25,7 +25,7 @@ def approval_key(tool: str, args: dict[str, Any], *, user_id: str = "anonymous",
 
 
 class ApprovalRecord(BaseModel):
-    """Immutable binding; signature fields are reserved and no signing is performed."""
+    """Immutable binding. The ledger store signs a record when it is approved; callers never sign."""
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid", hide_input_in_errors=True)
     key: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -64,10 +64,13 @@ def make_approval_record(tool: str, args: dict, *, user_id: str = "anonymous", a
 
 
 def request(payload: dict[str, Any]) -> bool:
-    """사용자 승인을 요청한다. 재개 값: True/False 또는 {"approved": bool, ...}."""
+    """사용자 승인을 요청한다. 재개 값이 `True` 또는 `{"approved": True, ...}` 일 때만 승인이다.
+
+    "yes"·1 같은 참 같은 값은 거절로 처리한다 (fail closed).
+    """
     from langgraph.types import interrupt
 
     answer = interrupt(payload)
     if isinstance(answer, dict):
-        return bool(answer.get("approved"))
-    return bool(answer)
+        return answer.get("approved") is True
+    return answer is True

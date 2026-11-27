@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "name": "my-assistant",
+  "found": true,
+  "agent": "openclaw",
+  "agentDisplayName": "OpenClaw",
+  "agentRuntime": "gateway",
+  "dcodeAutoApprovalMode": null,
+  "model": "qwen3:1.7b",
+  "provider": "ollama-local",
+  "servingProfileProvenance": null,
+  "llamaCpp": null,
+  "recordedRoute": {
+    "provider": "ollama-local",
+    "model": "qwen3:1.7b"
+  },
+  "liveRoute": null,
+  "routeDrift": null,
+  "phase": "Ready",
+  "gatewayState": "present",
+  "inferenceHealth": null,
+  "servingProcessHealth": {
+    "checked": false
+  },
+  "rpcIssue": null,
+  "hostGpuDetected": true,
+  "sandboxGpuEnabled": true,
+  "sandboxGpuMode": "auto",
+  "sandboxGpuDevice": null,
+  "sandboxGpuProof": {
+    "status": "verified",
+    "cudaVerified": true,
+    "label": null,
+    "detail": null,
+    "at": "2026-11-24T09:01:15.512Z"
+  },
+  "hostMounts": [],
+  "openshellDriver": "docker",
+  "openshellVersion": "0.0.116",
+  "policies": [
+    "brew-balanced",
+    "huggingface",
+    "openclaw-pricing",
+    "pypi"
+  ],
+  "policiesAvailable": true,
+  "failureLayer": null,
+  "terminalRuntimeHealth": null,
+  "dockerPaused": false,
+  "inferenceProbeSuppressed": true
+}
