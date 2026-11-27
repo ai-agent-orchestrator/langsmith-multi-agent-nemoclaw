@@ -73,7 +73,8 @@ python scripts/sync_third_party.py --check
 > - pre_tool 제한과 워커 교체(2026-11-27, 오프라인): 멈춘 필터가 워커를 남기지 않는다. 툴 실행 전이라 같은 idempotency key 재시도가 안전하다. 교체된 워커는 저장된 결과를 저널에서 돌려준다(`tests/test_nemoclaw_restart.py`). 워커 이미지를 다시 만들어야 실설치에 반영된다.
 > - 부하·재시작·메모리 점검 도구(2026-11-27): `scripts/nemoclaw_load_check.py` (REALITY §3.5). **실설치 미실행.**
 > - CPU·메모리 상한(2026-11-27): `scripts/nemoclaw_worker_sandbox.py --cpu … --memory …`. 주지 않으면 상한 없음. 값은 사용자 결정, 적용하려면 샌드박스를 다시 만든다(REALITY §3.5).
-> - 남음: 워크스페이스에 파일을 올리는 경로 결정, 부하 점검과 상한의 실설치 확인. 모델 연결 시 `inference.local` 재점검·워크스페이스 분리 검토.
+> - DNS·이웃 점검(2026-11-27): `nemoclaw_isolation_check.py --dns --peer HOST:PORT` (REALITY §3.4). **실설치 미실행.**
+> - 남음: 워크스페이스에 파일을 올리는 경로 결정, 부하 점검·상한·DNS·이웃 점검의 실설치 확인. 모델 연결 시 `inference.local` 재점검·워크스페이스 분리 검토.
 > - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).
@@ -97,11 +98,14 @@ python scripts/sync_third_party.py --check
 >
 > **원본 브랜치와 다른 점:** 스캐너 계약은 이 저장소의 `scanner.py`(바이트에 묶인 `ScanReport`)를 쓴다(`needs_validation` 없음, 보고서가 없으면 불합격, 차단 기준은 high 보다 약하게 할 수 없음). 도입 게이트는 해시한 바이트를 그대로 스캔하고, 잠금에 없는 플러그인·소스 디렉터리도 불합격 처리한다. 격리 기록은 `egress_isolation` 이벤트다. 결정 서비스의 모순 응답(`deny` + `ALLOWED`)도 거부한다.
 >
+> **연결 (2026-11-27, 오프라인 확인):**
+> - egress 격리: 툴 래퍼의 모든 샌드박스 호출이 `Runtime.egress_guard` 를 거친다(같은 샌드박스에서 5분 안에 3회 거부 → 격리, 해제는 `runtime.egress_guard.release(..., by=, reason=)`). 상태는 런타임별 프로세스 메모리다. 워커는 프록시가 터널을 403 으로 거부한 예외를 `egress_denied` 로 보고하고, 호스트는 요청이 선언한 호스트만 받아들인다(`proxy_refusal.py`, `tests/test_egress_wiring.py`). 한계: 평문 HTTP 의 403, 툴이 예외를 삼키고 정상 값을 돌려주는 경우는 보지 못한다. 지금 워커의 툴은 네트워크를 쓰지 않아 실설치에서 발동한 적은 없다.
+> - `reason_code`: 관측을 켠 서비스에서 차단·샌드박스 실패마다 `security:decision` run 의 metadata 로 남는다. 사유 원문·인자는 보내지 않는다. closed 모드는 보내지 않는다(`tests/test_decision_tracing.py`). 실제 LangSmith 서버 확인은 안 했다.
+> - 도입 게이트: CI(`security.yml`)와 플러그인 카탈로그 로딩에 연결했다. 잠금과 다르거나 목록에 없는 플러그인은 카탈로그에서 빠지고 `errors` 에 남는다. `__pycache__` 는 카탈로그만 무시한다.
+>
 > **아직 연결하지 않은 것:**
-> - `IsolatingSandboxRunner` 는 어떤 실행 경로에도 기본으로 끼우지 않았다. 또 지금 NemoClaw 워커는 `egress_denied` 를 채우지 않으므로 **실설치에서는 격리가 발동하지 않는다**(Fake 러너에서만 동작). 격리 상태는 프로세스 메모리다. 영속 장부를 쓰는 결제는 Fake 러너를 감싸면 차단된다(fail closed).
 > - `FailClosedClient`/`ChainDecisionClient` 는 계약만 있다. 외부 결정 서비스가 없다.
-> - `reason_code` 는 LangSmith metadata 로 보내지 않는다(`Decision.trace_metadata()` 는 준비됨).
-> - 도입 게이트는 카탈로그 로딩과 CI 에 연결하지 않았다. 기존 `ingestion.admit_plugin` 과 검사 범위가 겹친다. 깨끗한 체크아웃에서 `python scripts/intake_gate.py --static` 으로 현재 `third_party/` 가 통과한다.
+> - `ingestion.admit_plugin` 은 어디서도 부르지 않으며 도입 게이트와 범위가 겹친다.
 >
 > 아래는 당시 명세 기록이다.
 

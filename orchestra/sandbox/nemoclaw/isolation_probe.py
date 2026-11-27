@@ -14,6 +14,7 @@ import re
 import socket
 import ssl
 import stat
+import struct
 import sys
 from typing import Any
 from urllib.parse import urlsplit
@@ -28,6 +29,9 @@ CHECK_NAMES = ("control_tmp_write", "direct_tcp_refused", "proxy_tunnel_refused"
                "not_root", "no_capabilities", "no_new_privileges", "memfd_refused")
 # Judged only when the host script names the sandbox's inference host.
 INFERENCE_CHECK = "inference_route_refused"
+# Judged only when the host script asks for them.
+DNS_CHECKS = ("dns_lookup_refused", "dns_query_refused")
+PEER_CHECK = "peer_refused"
 # OpenShell 0.0.116 answers this when the sandbox's workspace has no inference route.
 _NO_ROUTE = b"cluster inference is not configured"
 
@@ -214,6 +218,98 @@ def generation_report(proxy: tuple[str, int] | None, host: str, **options: Any) 
     return reason if status is None else f"status={status}"
 
 
+def dns_query(name: str, ident: int) -> bytes:
+    """One question for the name's IPv4 address, with recursion requested."""
+    labels = b"".join(bytes((len(part),)) + part for part in name.encode("ascii").split(b".") if part)
+    return struct.pack(">HHHHHH", ident, 0x0100, 1, 0, 0, 0) + labels + b"\0" + struct.pack(">HH", 1, 1)
+
+
+def dns_reply(reply: bytes, ident: int) -> tuple[int, int] | None:
+    """(response code, answer count) of a reply to our question, else None."""
+    if len(reply) < 12:
+        return None
+    got, flags, _, answers, _, _ = struct.unpack(">HHHHHH", reply[:12])
+    return (flags & 0x000F, answers) if got == ident and flags & 0x8000 else None
+
+
+def ask_resolver(server: str, port: int, name: str, transport: str, timeout_s: float = 5.0) -> tuple[bytes, str]:
+    """Send one DNS question over "udp" or "tcp"; return (reply bytes, "") or (b"", reason)."""
+    ident = int.from_bytes(os.urandom(2), "big")
+    query = dns_query(name, ident)
+    try:
+        family = socket.AF_INET6 if ":" in server else socket.AF_INET
+        kind = socket.SOCK_DGRAM if transport == "udp" else socket.SOCK_STREAM
+        with socket.socket(family, kind) as connection:
+            connection.settimeout(timeout_s)
+            connection.connect((server, port))
+            if transport == "udp":
+                connection.send(query)
+                return connection.recv(4096), ""
+            connection.sendall(struct.pack(">H", len(query)) + query)
+            reply = b""
+            while len(reply) < 2 or len(reply) < 2 + int.from_bytes(reply[:2], "big"):
+                chunk = connection.recv(4096)
+                if not chunk or len(reply) > 8192:
+                    break
+                reply += chunk
+            return reply[2:], "" if len(reply) > 2 else "closed"
+    except socket.timeout:
+        return b"", "timeout"
+    except OSError as error:
+        return b"", _name(error)
+
+
+def local_resolvers(text: str) -> list[str]:
+    """The nameserver addresses of a resolv.conf."""
+    found = [parts[1] for parts in (line.split() for line in text.splitlines())
+             if len(parts) >= 2 and parts[0] == "nameserver"]
+    return found[:3]
+
+
+def dns_lookup_refused(name: str) -> Result:
+    """The system resolver must not answer for a name no policy declares."""
+    try:
+        socket.getaddrinfo(name, 443)
+    except OSError:
+        return PASS, "not_resolved"
+    return FAIL, "resolved"
+
+
+def dns_query_refused(public: tuple[str, int], local: list[str], name: str, *, port: int = 53,
+                      timeout_s: float = 5.0) -> Result:
+    """No question may reach an outside resolver, and a configured resolver must not answer with records.
+
+    Any bytes back from the outside resolver mean traffic left the sandbox. A configured resolver may
+    refuse or return no records; an answer with records means the name was looked up for the sandbox.
+    """
+    seen = []
+    for transport in ("udp", "tcp"):
+        reply, reason = ask_resolver(public[0], public[1], name, transport, timeout_s)
+        if reply:
+            return FAIL, f"public_resolver_answered,transport={transport}"
+        seen.append(f"public_{transport}={reason or 'empty'}")
+    for server in local:
+        reply, _ = ask_resolver(server, port, name, "udp", timeout_s)
+        parsed = dns_reply(reply, int.from_bytes(reply[:2], "big")) if reply else None
+        if parsed is not None and parsed[0] == 0 and parsed[1] > 0:
+            return FAIL, "configured_resolver_answered"
+    seen.append(f"configured={len(local)}")
+    return PASS, ",".join(seen)
+
+
+def peer_refused(proxy: tuple[str, int] | None, peers: list[tuple[str, int]], timeout_s: float = 5.0) -> Result:
+    """Neighbours (another sandbox, a host service) must be closed both through the proxy and directly."""
+    unknown = ""
+    for number, (host, port) in enumerate(peers, 1):
+        tunnel, detail = proxy_refused(proxy, connect_request(host, port), timeout_s)
+        direct, _ = direct_tcp(host, port, timeout_s)
+        if FAIL in (tunnel, direct):
+            return FAIL, f"peer={number},{'tunnel_open' if tunnel == FAIL else 'connected'}"
+        if tunnel != PASS:
+            unknown = unknown or f"peer={number},{detail}"
+    return (UNKNOWN, unknown) if unknown else (PASS, f"peers={len(peers)}")
+
+
 def process_status(text: str) -> dict[str, Result]:
     """Judge the privileges listed in /proc/self/status."""
     fields = dict(line.split(":", 1) for line in text.splitlines() if ":" in line)
@@ -264,6 +360,17 @@ def run(config: dict[str, Any]) -> list[str]:
     inference = config.get("inference_host")
     if inference:
         checks[INFERENCE_CHECK] = inference_refused(proxy, str(inference))
+    if config.get("dns_server"):
+        try:
+            with open("/etc/resolv.conf", encoding="ascii", errors="replace") as handle:
+                resolvers = local_resolvers(handle.read(65_536))
+        except OSError:
+            resolvers = []
+        checks["dns_lookup_refused"] = dns_lookup_refused(web)
+        checks["dns_query_refused"] = dns_query_refused((str(config["dns_server"]), 53), resolvers, web)
+    peers = [(str(host), int(port)) for host, port in config.get("peers") or []]
+    if peers:
+        checks[PEER_CHECK] = peer_refused(proxy, peers)
     lines = [f"CHECK {name} {result} {detail}" for name, (result, detail) in checks.items()]
     try:
         socket.getaddrinfo(web, 443)

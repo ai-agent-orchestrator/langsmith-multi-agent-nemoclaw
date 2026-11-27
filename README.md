@@ -53,9 +53,9 @@ Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · 
 | NemoClaw worker: read-only tools, timeout reply, isolation | ✅ real install |
 | Tool time limit, external stop file | ✅ offline |
 | Real LLM | ⬜ |
-| Sandbox CPU / memory limits, load, restart | ✅ offline · ⬜ real install |
-| File upload, cross-sandbox and DNS-leak tests | ⬜ |
-| Egress isolation, plugin intake in the run path | ⬜ built, not wired |
+| Egress isolation, plugin intake, refusal codes in traces | ✅ offline |
+| Sandbox CPU / memory limits, load, restart, DNS and neighbour checks | ✅ offline · ⬜ real install |
+| File upload into the sandbox | ⬜ |
 
 ## Implementation details
 

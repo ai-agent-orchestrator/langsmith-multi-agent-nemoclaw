@@ -9,10 +9,18 @@ beyond the request line.
     python scripts/nemoclaw_isolation_check.py
     python scripts/nemoclaw_isolation_check.py --inference-host inference.local
     python scripts/nemoclaw_isolation_check.py --inference-host inference.local --send-prompt
+    python scripts/nemoclaw_isolation_check.py --dns
+    python scripts/nemoclaw_isolation_check.py --peer 172.20.0.3:8080
 
 --inference-host adds a judged check: it asks that host for its model list. --send-prompt also asks
 for a one-token reply to the word "ping", which runs whatever model the gateway routes to (and may
 cost money if that is a paid service); only the response status is reported.
+
+--dns adds two judged checks: the sandbox cannot resolve the web host, and a question sent straight to
+a public resolver (--dns-server) or to the sandbox's configured resolver gets no records.
+
+--peer HOST:PORT (repeatable) names a neighbour, such as another sandbox or a service on this machine,
+that must be closed both through the proxy and directly. It counts only if this machine can reach it.
 
 Exit status: 0 ISOLATION=PASS, 1 FAIL (something was allowed), 2 INCOMPLETE (not shown either way).
 """
@@ -58,6 +66,22 @@ def tcp_target(value: str) -> tuple[str, int]:
     return host, number
 
 
+def peer_target(value: str) -> tuple[str, int]:
+    """A host name or IPv4 address with a port."""
+    host, _, port = value.rpartition(":")
+    if _HOST.fullmatch(host) is None or not port.isdigit() or not 0 < int(port) < 65536:
+        raise argparse.ArgumentTypeError("expected HOST:PORT")
+    return host, int(port)
+
+
+def ip_address(value: str) -> str:
+    """An IPv4 or IPv6 address."""
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected an IP address") from None
+
+
 def reachable(host: str, port: int, timeout_s: float = 5.0) -> bool:
     """Whether this machine can reach a target; if it cannot, a refusal inside proves nothing."""
     try:
@@ -67,7 +91,8 @@ def reachable(host: str, port: int, timeout_s: float = 5.0) -> bool:
         return False
 
 
-def judge(output: str, names: tuple[str, ...], *, targets_reachable: bool) -> tuple[list[str], str]:
+def judge(output: str, names: tuple[str, ...], *, targets_reachable: bool,
+          uncontrolled: dict[str, str] | None = None) -> tuple[list[str], str]:
     """Return the lines to print and PASS, FAIL or INCOMPLETE. A missing or repeated check is unknown."""
     seen: dict[str, list[tuple[str, str]]] = {}
     notes: list[str] = []
@@ -85,6 +110,8 @@ def judge(output: str, names: tuple[str, ...], *, targets_reachable: bool) -> tu
             result, detail = "FAIL", next(item[1] for item in found if item[0] == "FAIL")
         if name in NETWORK_CHECKS and result == "PASS" and not targets_reachable:
             result, detail = "UNKNOWN", "host_cannot_reach_target"
+        if result == "PASS" and name in (uncontrolled or {}):
+            result, detail = "UNKNOWN", (uncontrolled or {})[name]
         lines.append(f"CHECK {name} {result} {detail}")
         results.append(result)
     verdict = "FAIL" if "FAIL" in results else "INCOMPLETE" if "UNKNOWN" in results else "PASS"
@@ -99,18 +126,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--inference-host", type=host_name, default=None,
                         help="also check that no model route answers on this host")
     parser.add_argument("--send-prompt", action="store_true", help="also request a one-token reply")
+    parser.add_argument("--dns", action="store_true", help="also check that names cannot be looked up")
+    parser.add_argument("--dns-server", type=ip_address, default="1.1.1.1", help="public resolver for --dns")
+    parser.add_argument("--peer", type=peer_target, action="append", default=[],
+                        help="also check that this HOST:PORT is closed (repeatable)")
     args = parser.parse_args(argv)
+    if len(args.peer) > 8:
+        parser.error("at most 8 --peer targets")
     if args.send_prompt and not args.inference_host:
         parser.error("--send-prompt needs --inference-host")
     sys.path.insert(0, str(ROOT))
     from orchestra.sandbox.nemoclaw.cli import NemoClawCli
-    from orchestra.sandbox.nemoclaw.isolation_probe import CHECK_NAMES, INFERENCE_CHECK
+    from orchestra.sandbox.nemoclaw.isolation_probe import (
+        CHECK_NAMES, DNS_CHECKS, INFERENCE_CHECK, PEER_CHECK, ask_resolver)
     from orchestra.sandbox.nemoclaw.ssh_launcher import OpenShellSshLauncher
 
     config = {"tcp_host": args.tcp_target[0], "tcp_port": args.tcp_target[1], "web_host": args.web_host,
               "inference_host": args.inference_host, "send_prompt": args.send_prompt}
     names = CHECK_NAMES + ((INFERENCE_CHECK,) if args.inference_host else ())
     controls = reachable(*args.tcp_target) and reachable(args.web_host, 443) and reachable(args.web_host, 80)
+    uncontrolled: dict[str, str] = {}
+    if args.dns:
+        config["dns_server"] = args.dns_server
+        names += DNS_CHECKS
+        if not reachable(args.web_host, 443):
+            uncontrolled["dns_lookup_refused"] = "host_cannot_resolve_target"
+        if not all(ask_resolver(args.dns_server, 53, args.web_host, transport)[0] for transport in ("udp", "tcp")):
+            uncontrolled["dns_query_refused"] = "host_cannot_ask_resolver"
+    if args.peer:
+        config["peers"] = args.peer
+        names += (PEER_CHECK,)
+        if not all(reachable(host, port) for host, port in args.peer):
+            uncontrolled[PEER_CHECK] = "host_cannot_reach_target"
     launcher = OpenShellSshLauncher(NemoClawCli(openshell=os.environ.get("OPENSHELL_BIN", "openshell"),
                                                 dialect="modern"), ssh=os.environ.get("SSH_BIN", "ssh"))
     source = (ROOT / "orchestra" / "sandbox" / "nemoclaw" / "isolation_probe.py").read_bytes()
@@ -124,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     if done.returncode != 0:
         print(f"the probe exited with status {done.returncode}")
     lines, verdict = judge(done.stdout[:100_000].decode("utf-8", errors="replace"), names,
-                           targets_reachable=controls)
+                           targets_reachable=controls, uncontrolled=uncontrolled)
     if done.returncode != 0 and verdict == "PASS":
         verdict = "INCOMPLETE"
     print("\n".join(lines))

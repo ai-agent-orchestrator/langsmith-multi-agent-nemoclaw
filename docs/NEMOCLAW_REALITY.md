@@ -166,7 +166,15 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 `ISOLATION=PASS` 는 전부 통과, `FAIL` 은 하나라도 허용됨, `INCOMPLETE` 는 확인하지 못한 항목이 있음. 판정하지 않는 정보: DNS 해석 여부, 비밀값 모양의 환경변수 **이름**.
 
 `--inference-host inference.local` 을 주면 `inference_route_refused` 를 함께 판정한다: 모델 목록(`GET /v1/models`)을 요청해, 터널이 403 이거나 "라우트 없음" 503 일 때만 통과. 그 밖의 HTTP 응답은 라우트가 있다는 뜻이라 `FAIL`. `--send-prompt` 는 `ping` 한 단어에 1토큰 응답을 추가로 요청해 상태 코드만 보여 준다(게이트웨이가 가리키는 모델이 실행되며, 유료 서비스면 비용이 든다).
-점검 범위 밖: CPU·메모리 상한, 샌드박스 간 격리, DNS 를 통한 유출.
+점검 범위 밖: CPU·메모리 상한(§3.5). DNS·이웃 점검은 아래 옵션으로 판정하며 **실설치에서는 아직 돌리지 않았다.**
+
+| 옵션 | 판정 | 통과 조건 |
+|---|---|---|
+| `--dns` | `dns_lookup_refused` | 시스템 해석기가 정책에 없는 이름(`--web-host`)을 해석하지 못함 |
+| `--dns` | `dns_query_refused` | 공개 해석기(`--dns-server`, 기본 1.1.1.1)가 UDP·TCP 어느 쪽에도 응답하지 않고, 샌드박스에 설정된 해석기가 레코드를 돌려주지 않음 |
+| `--peer HOST:PORT` | `peer_refused` | 지정한 이웃(다른 샌드박스, 호스트 서비스)에 프록시가 403, 직접 연결도 실패 |
+
+호스트에서도 닿지 않는 대상은 `UNKNOWN` 이다. `--peer` 는 이웃 주소를 사람이 골라야 하며, 지정하지 않은 대상은 점검되지 않는다. 소스 확인(OpenShell 0.0.116 `proxy.rs`): 정책이 거부한 `CONNECT` 는 이름 해석 전에 403 으로 끝난다. 평문 HTTP 경로와 프록시를 거치는 DNS 유출은 실측하지 않았다.
 
 **실설치 실측 (2026-11-27, WSL2, 사용자 실행, `--inference-host inference.local`):** `ISOLATION=PASS`. 이미지는 `ec2558e` 로 만든 `orchestra-code`, 점검 스크립트는 `48e7b6a`.
 
