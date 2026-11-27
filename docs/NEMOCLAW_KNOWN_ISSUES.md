@@ -10,7 +10,7 @@
 
 | # | 증상 | 원인 | 바로 할 일 | 우리 코드의 대응 |
 |---|---|---|---|---|
-| 1 | 샌드박스 명령(`exec`, `policy list`, `status`, `doctor`)이 **출력 없이 수십 초~30분 멈춤** | 샌드박스별 잠금(`mcp-lifecycle-locks`) 대기. 기본 30분, 대기 중 무출력. 주인이 다른 PID 네임스페이스면 회수 안 함 **[소스][이슈 #14070]** | `scripts/nemoclaw_lock_doctor.sh` → 필요 시 `--clean` | 실행 경로를 nemoclaw 에 기대지 않음, 타임아웃 시 실패 처리 |
+| 1 | 샌드박스 명령(`exec`, `policy list`, `status`, `doctor`)이 **출력 없이 수십 초~30분 멈춤** | 샌드박스별 잠금(`mcp-lifecycle-locks`) 대기. 기본 30분, 대기 중 무출력. 주인이 다른 PID 네임스페이스면 회수 안 함 **[실측 확인][소스][이슈 #14070]** | `scripts/nemoclaw_lock_doctor.sh` → 필요 시 `--clean` | 실행 경로를 nemoclaw 에 기대지 않음, 타임아웃 시 실패 처리 |
 | 2 | `Failed to acquire lock on ~/.nemoclaw-portable-host.lock after 120 retries` | 호스트 잠금을 다른 nemoclaw 프로세스(대개 멈춘 것)가 쥐고 있음. 0.1초×120회 ≈ 12초 후 포기 **[실측][소스]** | 잠금 소유 PID 확인 후 그 프로세스만 종료 | `nemoclaw_host_lock_busy` 로 분류, 우리 호출은 한 번에 하나 |
 | 3 | 타임아웃으로 끊은 뒤에도 잠금이 안 풀림 | 부모만 죽고 자식/고아 프로세스가 잠금을 계속 쥠 **[이슈 #10663]** | `ps` 로 남은 `node …/nemoclaw` 확인 후 종료 | 타임아웃 시 **프로세스 그룹 전체** 종료 |
 | 4 | 같은 명령을 동시에 두 번 돌리면 둘 다 실패 | 모든 명령이 호스트 잠금으로 직렬화됨 **[실측]** | 동시에 돌리지 않기 | 점검 스크립트 중복 실행 방지, CLI 단일 실행 잠금 |
@@ -59,7 +59,13 @@ openshell (CLI) ──► openshell-gateway (127.0.0.1:8080)   ← 실제 격리
   - 의도: 공유 디렉터리에서 남의 프로세스를 잘못 판단해 상호 배제를 깨지 않으려는 것이다.
   - 부작용: WSL 을 재시작하면 이전 부팅에서 남은 잠금이 영원히 "살아 있는 주인"으로 취급된다 → 30분 멈춤 **[이슈 #14070]**.
 
-### 2.3 진단과 정리
+### 2.3 실제 사례 (2026-11-27)
+- 증상: `my-assistant` 대상 nemoclaw 명령이 모두 무출력으로 45초 이상 멈춤. 텍스트 `status`, `doctor`, `policy list/get`, `exec -- true`, dry-run 모두 같았다.
+- 진단(`nemoclaw_lock_doctor.sh`): 샌드박스 잠금이 **2026-11-25 04:44 UTC**에 만들어진 채 남아 있었다. 주인 PID 는 이미 종료됐고 `foreign-namespace`였다(이후 WSL 이 재부팅됨).
+- 조치: `--clean`으로 잠금 파일 이름을 바꿨다 → `nemoclaw my-assistant policy list` **45초 이상 → 1.15초**.
+- 교훈: WSL 재시작이나 PC 재부팅 뒤 nemoclaw 샌드박스 명령이 말없이 멈추면, 다른 걸 의심하기 전에 lock doctor 부터 돌린다.
+
+### 2.4 진단과 정리
 ```bash
 bash -l scripts/nemoclaw_lock_doctor.sh          # 읽기 전용 진단
 bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종료 + 주인 없는 외부 네임스페이스 잠금 이름 변경
