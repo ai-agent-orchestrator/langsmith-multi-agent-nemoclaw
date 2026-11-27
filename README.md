@@ -61,7 +61,8 @@ Real install · WSL2 · NemoClaw v0.0.145 · OpenShell 0.0.116 · 2026-11-27 · 
 | NemoClaw egress policy generation | ✅ offline |
 | NemoClaw worker sandbox ([branch](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli)) | ✅ real install |
 | Real LLM | ⬜ |
-| Sandbox CPU / memory limits, load, restart, cross-sandbox and DNS-leak tests | ⬜ |
+| Sandbox CPU / memory limits, load, restart (on the 21 branch) | ✅ offline · ⬜ real install |
+| Cross-sandbox and DNS-leak tests | ⬜ |
 | Claude tool adapters, more scenarios | ⬜ |
 
 ## Implementation details

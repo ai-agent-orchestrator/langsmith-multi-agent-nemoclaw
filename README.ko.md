@@ -53,7 +53,8 @@
 | NemoClaw egress 정책 생성 | ✅ 오프라인 |
 | NemoClaw 워커 샌드박스 ([브랜치](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli)) | ✅ 실설치 |
 | 실제 LLM | ⬜ |
-| 샌드박스 CPU·메모리 상한, 부하, 재시작, 샌드박스 간·DNS 유출 점검 | ⬜ |
+| 샌드박스 CPU·메모리 상한, 부하, 재시작 (21 브랜치) | ✅ 오프라인 · ⬜ 실설치 |
+| 샌드박스 간·DNS 유출 점검 | ⬜ |
 | Claude 툴 어댑터, 추가 시나리오 | ⬜ |
 
 ## 구현 상세
