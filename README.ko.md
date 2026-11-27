@@ -7,16 +7,7 @@
 위험한 실행(결제·코드 실행)은 **NemoClaw/OpenShell 샌드박스**로 격리하는 설계·구현 저장소입니다.
 LLM·네트워크·NemoClaw 없이도 **실제 컴파일된 그래프**를 시나리오로 끝까지 실행해 검증할 수 있습니다.
 
-> **현재 상태 (2026-11-23, 현재 작업 스택 기준)** — 코어·패키징·카탈로그·오프라인 LangSmith,
-> C13/C14 진단 화면·v1 백엔드·C16~C19 방어·C22 로컬 장부 영속화를 구현했습니다.
-> 실모델 · 실제 LangSmith 서버 · **실제 NemoClaw 연동은 이 환경에서 검증하지 못했습니다** (아래 [NemoClaw 보완 예정](#이-저장소의-nemoclaw) 참고).
-
-| 문서 | 내용 |
-|---|---|
-| [`docs/DESIGN.md`](docs/DESIGN.md) | 전체 설계서 (아키텍처·스펙·LangSmith 24개 기능 지도·NemoClaw 배치) |
-| [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **인수인계**: 끝난 것 / 남은 일 C1~C15 / 설계 이탈 / 주의사항 |
-| [`docs/NEMOCLAW_KNOWN_ISSUES.ko.md`](docs/NEMOCLAW_KNOWN_ISSUES.ko.md) | **NemoClaw 흔한 문제 정리**: 멈춤·잠금·WSL2·정책·텔레메트리 등 15가지 — 원인, 우회 방법, 면접 포인트 |
-| [`AGENTS.md`](AGENTS.md) | Codex 작업 규칙·PR 템플릿 |
+**NemoClaw 흔한 문제 정리** — [English](docs/NEMOCLAW_KNOWN_ISSUES.md) · [한국어](docs/NEMOCLAW_KNOWN_ISSUES.ko.md)
 
 ## 빠른 실행
 
