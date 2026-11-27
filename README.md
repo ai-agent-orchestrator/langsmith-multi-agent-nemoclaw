@@ -95,6 +95,12 @@ hook integration, Prompt Hub fallbacks, UI procedures and unsupported capabiliti
 ### Operator stops and audit
 
 `ORCHESTRA_KILL_SWITCH=1` is read on every call and stops new model and tool calls.
+A running process cannot see a changed environment, so to stop it from outside set
+`ORCHESTRA_KILL_SWITCH_FILE=/absolute/path/stop` before it starts: while anything exists
+at that path, new calls are blocked, and removing it releases them. A relative path, a
+missing parent directory or a path that cannot be checked also blocks. A call already
+running is not interrupted by the stop; it ends or reaches its time limit. Keep the
+directory writable only by operators, outside any workspace an agent can write to.
 Five consecutive blocked tool decisions open a team's circuit; successes do not
 close it, only `runtime.security_control.reset(team)` does. Passing
 `services={"audit_log": AuditLog(path, key)}` writes every runtime event to the HMAC

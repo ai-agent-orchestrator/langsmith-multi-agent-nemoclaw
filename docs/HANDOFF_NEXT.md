@@ -68,6 +68,7 @@ python scripts/sync_third_party.py --check
 > - 설계와 다른 점: `fs_grep`은 정규식이 아니라 문자열 검색(비용이 입력 크기에 비례하도록), `nb_read`와 쓰기·셸·웹 툴 없음, `code_explorer`는 아직 어느 팀에도 넣지 않음.
 > - 실설치 툴 실행(2026-11-27, 사용자 실행): 샌드박스를 다시 만들어 `fs_list` 성공·워크스페이스 밖 경로 거부 확인(REALITY §3.3). 그 이미지에는 4단계 병합 코드가 없었다.
 > - 시간 초과 중단(오프라인, 2026-11-27): 워커가 제한 시간(요청·툴 중 짧은 쪽)에 툴을 중단하고 `worker_timeout`을 돌려준다. 중단이 통하지 않으면 2초 뒤 워커 프로세스가 종료하고, 같은 idempotency key 재시도는 `worker_execution_indeterminate`다(`deadline.py`, `tests/test_worker_deadline.py`). 호스트는 응답을 5초 더 기다린다. 툴 실행과 post_tool 필터에만 적용되며 실설치 확인은 남았다.
+> - 긴급 중지(2026-11-27): `ORCHESTRA_KILL_SWITCH_FILE`에 지정한 경로에 무엇이든 있으면 새 모델·툴 호출을 막는다. 확인할 수 없어도 막는다(`security/control.py`, `tests/test_stop_file.py`). 실행 중인 호출은 중단하지 않는다. 호스트에 설정하는 값이며 워커 이미지에는 넣지 않았다.
 > - 남음: 워크스페이스에 파일을 올리는 경로 결정. 네트워크 차단·재시작·부하 확인, 샌드박스 CPU·메모리 상한.
 > - 아래는 당시 명세 기록이다.
 

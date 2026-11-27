@@ -1,8 +1,23 @@
-"""Thread-safe team circuit breakers and an environment-driven global stop."""
+"""Thread-safe team circuit breakers and a global stop set by an environment variable or a stop file."""
 from __future__ import annotations
 
 import os
 import threading
+
+STOP_FILE_ENV = "ORCHESTRA_KILL_SWITCH_FILE"
+
+
+def _stop_file_present(path: str) -> bool:
+    """Only a clear "no such file" in an existing directory means run; anything uncertain means stop."""
+    if not os.path.isabs(path):
+        return True
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return not os.path.isdir(os.path.dirname(path))
+    except (OSError, ValueError):
+        return True
+    return True
 
 
 class SecurityControl:
@@ -17,9 +32,10 @@ class SecurityControl:
         self._lock = threading.RLock()
 
     def guard(self, scope: str) -> str | None:
-        """Check the kill switch on every call so running processes see updates."""
+        """Check the kill switch and the stop file on every call so running processes see updates."""
         stop = os.environ.get("ORCHESTRA_KILL_SWITCH", "0").strip().lower()
-        if stop not in {"0", "false", "off", ""}:
+        stop_file = os.environ.get(STOP_FILE_ENV, "")
+        if stop not in {"0", "false", "off", ""} or (stop_file and _stop_file_present(stop_file)):
             return "global_kill_switch"
         with self._lock:
             return "team_circuit_open" if self.teams.get(scope, scope) in self._tripped else None
