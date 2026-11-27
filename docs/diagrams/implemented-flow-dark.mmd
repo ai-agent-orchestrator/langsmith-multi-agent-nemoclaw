@@ -1,34 +1,40 @@
 flowchart TB
-  subgraph IN["1 · BEFORE THE MODEL"]
+  subgraph IN["INPUT"]
     direction LR
-    R["Request"] --> G["pre_request<br/>request gate"]
-    G --> M["pre_model<br/>contracts · source · taint"]
+    R["Request"] --> G["pre_request"] --> M["pre_model"]
   end
-  subgraph TOOL["2 · BEFORE A TOOL RUNS"]
+  subgraph TEAM["TEAM"]
     direction LR
-    T["pre_tool<br/>limits · policy"] --> C{"COMMIT?"}
-    C -->|yes| A["Bound one-shot<br/>approval"]
-    A --> S["Direct tool or<br/>Fake sandbox"]
+    D["Director"] --> L["Team lead"] --> W["Worker"]
+  end
+  subgraph TOOL["EVERY TOOL CALL"]
+    direction LR
+    T["pre_tool"] --> C{"COMMIT?"}
+    C -->|yes| A["One-shot approval<br/>server-side amount"]
+    A --> S["Sandbox runner"]
     C -->|no| S
   end
-  subgraph OUT["3 · BEFORE ANYTHING LEAVES"]
+  subgraph OUT["OUTPUT · MASKED"]
     direction LR
-    P["post_tool<br/>masking · source · taint"] --> O["pre_response<br/>masking"]
-    O --> V["Masked trace<br/>playground"]
+    P["post_tool"] --> O["pre_response"] --> V["Response · trace"]
   end
-  IN --> TOOL
+  IN --> TEAM
+  TEAM --> TOOL
   TOOL --> OUT
 
   classDef api fill:#18344b,stroke:#5ba7db,color:#e6edf6
+  classDef design fill:#342a4c,stroke:#b39ae5,color:#e6edf6
   classDef guard fill:#263c17,stroke:#91cc45,stroke-width:3px,color:#e6edf6
   classDef control fill:#42351e,stroke:#ddb965,color:#e6edf6
   classDef infra fill:#26313d,stroke:#a1afbf,color:#e6edf6
   classDef result fill:#1a2837,stroke:#78d5ef,color:#e6edf6
   class R api
+  class D,L,W design
   class G,M,T,P,O guard
   class C,A control
   class S infra
   class V result
   style IN fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
+  style TEAM fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
   style TOOL fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
   style OUT fill:#141f2c,stroke:#455f79,stroke-width:1.5px,color:#c9d8eb
