@@ -7,17 +7,7 @@ A design-and-implementation repo for organizing specialist agents (weather, rest
 **NemoClaw/OpenShell sandboxes** that isolate risky actions (payments, code execution).
 Real compiled graphs run end to end from scenarios **without any LLM, network, or NemoClaw**.
 
-> **Status (2026-11-23, current implementation stack)** — Core, packaging, catalog, offline LangSmith,
-> C13/C14 diagnostics, v1 backend, C16–C19 safeguards, and C22 local ledger persistence are implemented.
-> Real LLMs, a real LangSmith server, and **real NemoClaw integration were not verified in the authoring environment**
-> (see [NemoClaw supplement plan](#nemoclaw-in-this-repo)).
-
-| Doc | Contents |
-|---|---|
-| [`docs/DESIGN.md`](docs/DESIGN.md) | Full design: architecture, specs, 24-feature LangSmith map, NemoClaw placement |
-| [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) | **Handoff**: what is done / remaining tasks C1–C15 / design deviations / constraints |
-| [`docs/NEMOCLAW_KNOWN_ISSUES.md`](docs/NEMOCLAW_KNOWN_ISSUES.md) | **NemoClaw known issues**: 15 common problems (hangs, locks, WSL2, policy, telemetry) with causes, workarounds and interview notes |
-| [`AGENTS.md`](AGENTS.md) | Working rules and PR template for Codex |
+**NemoClaw common problems** — [English](docs/NEMOCLAW_KNOWN_ISSUES.md) · [한국어](docs/NEMOCLAW_KNOWN_ISSUES.ko.md)
 
 ## Quick start
 
