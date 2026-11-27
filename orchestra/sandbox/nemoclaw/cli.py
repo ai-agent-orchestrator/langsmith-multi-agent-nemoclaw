@@ -23,8 +23,11 @@ from typing import Literal
 SANDBOX_NAME_RE = re.compile(r"[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,17}[a-z0-9]|[a-z]")
 _PRESET_RE = re.compile(r"[a-z][a-z0-9_-]{0,127}")
 Command = Literal["help", "openshell_help", "status", "status_json", "logs", "policy_list", "policy_get",
-                  "policy_add", "policy_add_file", "policy_add_file_preview", "worker"]
+                  "policy_add", "policy_add_file", "policy_add_file_preview", "worker", "ssh_config"]
 WORKER_COMMAND = ("/opt/orchestra/venv/bin/python", "-m", "orchestra.sandbox.nemoclaw.worker")
+# -P keeps the (agent-writable) working directory off sys.path, so a file planted in the workspace
+# cannot replace the worker package. The image must make /opt/orchestra importable by itself.
+SERVE_COMMAND = (WORKER_COMMAND[0], "-P", *WORKER_COMMAND[1:], "--serve")
 MAX_OUTPUT_BYTES = 1_048_576
 _STDERR_TAIL_BYTES = 4_096
 _HOST_LOCK_MARKER = "Failed to acquire lock"
@@ -204,7 +207,10 @@ class NemoClawCli:
         if action == "status_json":
             return (self.nemoclaw, sandbox, "status", "--json")
         if action == "worker":
-            return (self.nemoclaw, sandbox, "exec", "--", *WORKER_COMMAND)
+            # exec forwards a piped stdin only when asked to.
+            return (self.nemoclaw, sandbox, "exec", "--stdin", "--", *WORKER_COMMAND)
+        if action == "ssh_config":
+            return (self.openshell, "sandbox", "ssh-config", sandbox)
         if action == "policy_list" and self.dialect == "modern":
             return (self.nemoclaw, sandbox, "policy", "list")
         subcommands = {"status": "status", "logs": "logs", "policy_list": "policy-list"}

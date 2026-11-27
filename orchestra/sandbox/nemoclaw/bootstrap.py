@@ -11,14 +11,23 @@ from ...security.capability import CapabilityAuthority
 from ...specs import ToolSpec
 from . import policy
 from .cli import NemoClawCli
+from .persistent import PersistentTransport
 from .runner import NemoClawRunner
-from .transport import StdioTransport
+from .ssh_launcher import OpenShellSshLauncher
+from .transport import StdioTransport, Transport
 
 
 def make_runner(specs: Iterable[ToolSpec], grants: dict[str, set[str]], *, security_mode: str = "closed",
                 dry_run: bool = False) -> NemoClawRunner:
-    """Require explicit dialect and exec verification; default transport is unavailable."""
+    """Require explicit dialect and exec verification; default transport is unavailable.
+
+    NEMOCLAW_TRANSPORT selects `stdio_via_cli` (default, one exec per call) or `ssh_stream`
+    (one long-lived worker per sandbox over OpenShell SSH).
+    """
     specs = list(specs)
+    kind = os.environ.get("NEMOCLAW_TRANSPORT") or "stdio_via_cli"
+    if kind not in {"stdio_via_cli", "ssh_stream"}:
+        raise ValueError("invalid_nemoclaw_transport")
     dialect = os.environ.get("NEMOCLAW_CLI_DIALECT", "modern")
     if dialect not in {"legacy", "modern"}:
         raise ValueError("invalid_nemoclaw_cli_dialect")
@@ -41,8 +50,12 @@ def make_runner(specs: Iterable[ToolSpec], grants: dict[str, set[str]], *, secur
     key_file = os.environ.get("ORCHESTRA_CAPABILITY_KEY_FILE")
     if key_file:
         authority = CapabilityAuthority(Path(key_file).read_bytes(), grants)
-    transport = StdioTransport(cli, exec_verified=True) if (
-        os.environ.get("NEMOCLAW_EXEC_VERIFIED") == "1" and authority is not None) else None
+    transport: Transport | None = None
+    if os.environ.get("NEMOCLAW_EXEC_VERIFIED") == "1" and authority is not None:
+        if kind == "ssh_stream":
+            transport = PersistentTransport(OpenShellSshLauncher(cli, ssh=os.environ.get("SSH_BIN", "ssh")))
+        else:
+            transport = StdioTransport(cli, exec_verified=True)
     runner = NemoClawRunner(cli, expected, transport=transport, security_mode=security_mode, authority=authority)
     baseline_file = os.environ.get("NEMOCLAW_REVIEWED_BASELINE")
     if baseline_file:
