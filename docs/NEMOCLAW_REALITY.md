@@ -179,9 +179,11 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 | 정보 | DNS 해석 실패, 비밀값 모양의 환경변수 이름 없음 |
 | ⚠️ `inference.local` | 네트워크 규칙이 없어도 프록시가 터널을 연다(`status=200`) |
 
-**남은 확인:** `inference.local` 터널로 보낸 요청이 실제 모델까지 가는지. 확인 전에는 이 샌드박스를 "네트워크가 완전히 없다"고 설명하지 않는다.
+**모델 경로 실측 (같은 날, 사용자 실행, 점검 스크립트 `2dbfeb1`, `--send-prompt`):** `openshell inference get` 은 두 항목 모두 `Not configured`. `inference_route_refused PASS no_route`, 1토큰 요청은 `status=503`, 전체 `ISOLATION=PASS`. 지금 이 샌드박스의 요청은 어떤 모델에도 닿지 않는다. 터널 자체는 열리므로 "네트워크가 완전히 없다"고 설명하지 않는다.
 
-**`inference.local` — 소스 확인 (OpenShell 0.0.116, 실설치 미확인):**
+**나중에 모델(Claude API 등)을 연결할 때:** 라우트를 설정하기 전에 아래 워크스페이스 분리를 검토하고, 설정한 뒤 `--inference-host inference.local` 점검을 다시 돌린다(사용자 결정: 연결 시점에 처리).
+
+**`inference.local` — 소스 확인 (OpenShell 0.0.116. "라우트 없음" 503 만 실설치에서 확인):**
 - 프록시는 네트워크 정책 평가 전에 `inference.local:443` 터널을 연다(`openshell-supervisor-network/src/proxy.rs`). 프리셋·정책으로는 막지 못한다.
 - 추론 요청은 샌드박스 밖의 프록시가 게이트웨이의 라우트와 자격 증명으로 전달한다. 라우트가 있으면 샌드박스 코드는 키 없이 모델을 부를 수 있다.
 - 라우트는 **OpenShell 워크스페이스 단위**다(`openshell-server/src/inference.rs` `get_inference_bundle` → 샌드박스의 워크스페이스, `docs/sandboxes/manage-workspaces.mdx`). 라우트가 없으면 503 `cluster inference is not configured`.
