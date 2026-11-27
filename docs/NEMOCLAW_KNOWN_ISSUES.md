@@ -1,185 +1,189 @@
-# NemoClaw 흔한 문제 정리 — 증상 · 원인 · 우회 · 면접 포인트
+# NemoClaw Known Issues — Symptoms · Causes · Workarounds · Interview Notes
 
-> 기준: **nemoclaw v0.0.145 / openshell 0.0.116**, WSL2 Ubuntu 26.04 + Docker Desktop, 샌드박스 `my-assistant`(OpenClaw, ollama `qwen3:1.7b`, GPU).
-> 근거는 세 가지다. ① 2026-11-27 실측(`scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`), ② NemoClaw v0.0.145 소스(`NVIDIA/NemoClaw` 태그 `v0.0.145`, 커밋 `6f36fef`), ③ 공개 이슈·공식 문서.
-> 표시: **[실측]** 이 환경에서 재현 · **[소스]** v0.0.145 코드에서 확인 · **[이슈]/[문서]** 공개 자료 근거 · **[추정]** 아직 확인 안 됨.
+**English** | [한국어](NEMOCLAW_KNOWN_ISSUES.ko.md)
+
+> The scripts and code referenced here (`scripts/nemoclaw_*.sh`, `orchestra/sandbox/nemoclaw/cli.py`, `tests/fixtures/nemoclaw/`) live on the [`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli) branch.
+
+> Baseline: **nemoclaw v0.0.145 / openshell 0.0.116**, WSL2 Ubuntu 26.04 + Docker Desktop, sandbox `my-assistant` (OpenClaw, ollama `qwen3:1.7b`, GPU).
+> Evidence comes from three places: ① measurements on 2026-11-27 (`scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`), ② the NemoClaw v0.0.145 source (`NVIDIA/NemoClaw` tag `v0.0.145`, commit `6f36fef`), ③ public issues and official docs.
+> Tags: **[measured]** reproduced in this environment · **[source]** confirmed in v0.0.145 code · **[issue]/[docs]** public material · **[guess]** not yet confirmed.
 
 ---
 
-## 0. 한눈에 보기
+## 0. At a glance
 
-| # | 증상 | 원인 | 바로 할 일 | 우리 코드의 대응 |
+| # | Symptom | Cause | Do this now | How our code responds |
 |---|---|---|---|---|
-| 1 | 샌드박스 명령(`exec`, `policy list`, `status`, `doctor`)이 **출력 없이 수십 초~30분 멈춤** | 샌드박스별 잠금(`mcp-lifecycle-locks`) 대기. 기본 30분, 대기 중 무출력. 주인이 다른 PID 네임스페이스면 회수 안 함 **[실측 확인][소스][이슈 #14070]** | `scripts/nemoclaw_lock_doctor.sh` → 필요 시 `--clean` | 실행 경로를 nemoclaw 에 기대지 않음, 타임아웃 시 실패 처리 |
-| 2 | `Failed to acquire lock on ~/.nemoclaw-portable-host.lock after 120 retries` | 호스트 잠금을 다른 nemoclaw 프로세스(대개 멈춘 것)가 쥐고 있음. 0.1초×120회 ≈ 12초 후 포기 **[실측][소스]** | 잠금 소유 PID 확인 후 그 프로세스만 종료 | `nemoclaw_host_lock_busy` 로 분류, 우리 호출은 한 번에 하나 |
-| 3 | 타임아웃으로 끊은 뒤에도 잠금이 안 풀림 | 부모만 죽고 자식/고아 프로세스가 잠금을 계속 쥠 **[이슈 #10663]** | `ps` 로 남은 `node …/nemoclaw` 확인 후 종료 | 타임아웃 시 **프로세스 그룹 전체** 종료 |
-| 4 | 같은 명령을 동시에 두 번 돌리면 둘 다 실패 | 모든 명령이 호스트 잠금으로 직렬화됨 **[실측]** | 동시에 돌리지 않기 | 점검 스크립트 중복 실행 방지, CLI 단일 실행 잠금 |
-| 5 | `nemoclaw <sb> status`(텍스트)는 느리고 `status --json`은 빠름 | 텍스트 status 는 샌드박스 안에서 **실제 추론 요청**(시도당 90초, 최대 3회)까지 보냄 **[소스][문서]** | 상태 확인은 `status --json` | 실행 중 점검은 `status_json` 만 사용 |
-| 6 | 모든 게 안 됨, `failureLayer: docker_unreachable` | Docker Desktop 꺼짐 → 게이트웨이 다운 **[실측]** | Docker Desktop 켜기 → `nemoclaw <sb> recover` | 시작 시 doctor 실패면 기동 거부 |
-| 7 | `connect` 세션이 열려 있으면 다른 샌드박스 명령이 전부 멈춤 | v0.0.111 에서 생긴 회귀로 보고됨, 현재 버전 수정 여부 미확인 **[이슈 #9737]** | 다른 터미널의 `connect`/`launch` 닫기 | lock doctor 가 열린 세션 표시 |
-| 8 | 정책 일부를 바꿨는데 다른 프리셋이 **조용히 사라짐** | `openshell policy set` 은 병합이 아니라 **전체 교체** **[문서][소스]** | 변경은 `nemoclaw <sb> policy add` 만 | `policy set` 은 명령 목록에 없음(테스트로 고정) |
-| 9 | 채널을 지웠는데 그 채널용 네트워크 허용이 남아 있음 | 프리셋 잔존 버그 **[이슈 #9109]**(이후 릴리스에서 수정 보고) | `policy list` 로 정기 점검 | 정책 드리프트 검사 |
-| 10 | 샌드박스가 생각보다 넓게 외부와 통신 가능 | 기본 프리셋 일부가 `access: full` + `tls: skip`(경로 규칙 미적용) **[실측]** | 안 쓰는 프리셋 `policy remove` | 프리셋 생성기는 경로 단위 규칙만 생성 |
-| 11 | 파일시스템 격리가 기대보다 약함 | `landlock: compatibility: best_effort` — 커널이 못 받치면 **조용히 약화** **[실측][문서]** | 커널 5.13+ 확인 | 2차 방어(샌드박스 안 필터, N3) 필요 |
-| 12 | CLI 가 NVIDIA 로 통신함 | v0.0.141부터 운영 텔레메트리 **기본 켜짐** **[문서]** | `export NEMOCLAW_DISABLE_TELEMETRY=1` | 래퍼가 기본으로 끔(`ORCHESTRA_NEMOCLAW_TELEMETRY=1` 로만 켬) |
-| 13 | onboard 가 WSL2 에서 멈춤 | Windows 쪽 Ollama 확인(PowerShell) 지연 **[이슈 #9604, 수정됨]**, sudo+pty 타임아웃 **[이슈 #10663, #12281 재발]** | 최신 버전, Windows Ollama 대신 WSL Ollama | — |
-| 14 | 이미지 빌드 중 멈춤 / exit 137 | 메모리 부족(이미지 압축 약 2.4GB), 런타임 자원 부족 **[문서]** | Docker Desktop 자원 상향, 스왑 | — |
-| 15 | 샌드박스 안에서 `CONNECT tunnel failed, response 403` | 정책에 없는 호스트 → 프록시 거부. 정상 동작 **[문서]** | `nemoclaw <sb> logs` 로 거부 흐름 확인 후 프리셋 검토 | egress 반복 거부 시 샌드박스 격리(NS5) |
+| 1 | Sandbox commands (`exec`, `policy list`, `status`, `doctor`) **hang with no output for tens of seconds up to 30 minutes** | Waiting on the per-sandbox lock (`mcp-lifecycle-locks`). Default wait is 30 minutes, silent. If the owner is in a different PID namespace it is never reclaimed **[measured & confirmed][source][issue #14070]** | `scripts/nemoclaw_lock_doctor.sh`, then `--clean` if needed | The execution path does not depend on nemoclaw; timeouts fail closed |
+| 2 | `Failed to acquire lock on ~/.nemoclaw-portable-host.lock after 120 retries` | Another nemoclaw process (usually a hung one) holds the host lock. Gives up after 0.1 s × 120 ≈ 12 s **[measured][source]** | Find the lock owner PID and stop only that process | Classified as `nemoclaw_host_lock_busy`; our calls run one at a time |
+| 3 | The lock stays held after a timeout | Only the parent dies; a child or orphan keeps the lock **[issue #10663]** | Find leftover `node …/nemoclaw` with `ps` and stop it | On timeout we kill the **whole process group** |
+| 4 | Running the same command twice at once makes both fail | Every command is serialized through the host lock **[measured]** | Don't run them concurrently | Probe script refuses to run twice; single-flight lock in the CLI wrapper |
+| 5 | Text `nemoclaw <sb> status` is slow, `status --json` is fast | Text status sends a **real inference request** from inside the sandbox (90 s per attempt, up to 3 attempts) **[source][docs]** | Use `status --json` for checks | Runtime checks use only `status_json` |
+| 6 | Nothing works, `failureLayer: docker_unreachable` | Docker Desktop is off → gateway is down **[measured]** | Start Docker Desktop → `nemoclaw <sb> recover` | Startup refuses to run if doctor fails |
+| 7 | With a `connect` session open, every other sandbox command hangs | Reported as a regression in v0.0.111; fix status in the current version unknown **[issue #9737]** | Close `connect`/`launch` in other terminals | Lock doctor lists open sessions |
+| 8 | After changing part of the policy, other presets **silently disappear** | `openshell policy set` **replaces** the whole policy, it does not merge **[docs][source]** | Change policy only with `nemoclaw <sb> policy add` | `policy set` is not in the command allowlist (pinned by a test) |
+| 9 | A channel was removed but its network allowance remains | Preset-retention bug **[issue #9109]** (reported fixed in later releases) | Check `policy list` regularly | Policy drift check |
+| 10 | The sandbox can reach more of the internet than expected | Some default presets use `access: full` + `tls: skip` (no path rules) **[measured]** | `policy remove` presets you don't use | Our preset generator emits path-scoped rules only |
+| 11 | Filesystem isolation is weaker than expected | `landlock: compatibility: best_effort` — **silently degrades** if the kernel can't support it **[measured][docs]** | Check kernel 5.13+ | Needs a second line of defense (in-sandbox filters, N3) |
+| 12 | The CLI talks to NVIDIA | Operation telemetry is **on by default** since v0.0.141 **[docs]** | `export NEMOCLAW_DISABLE_TELEMETRY=1` | Wrapper turns it off by default (on only with `ORCHESTRA_NEMOCLAW_TELEMETRY=1`) |
+| 13 | onboard hangs on WSL2 | Slow Windows-side Ollama check (PowerShell) **[issue #9604, fixed]**, sudo+pty timeout **[issues #10663, #12281 regression]** | Latest version; use Ollama inside WSL instead of on Windows | — |
+| 14 | Image build hangs / exit 137 | Out of memory (image ~2.4 GB compressed), under-provisioned runtime **[docs]** | Raise Docker Desktop resources, add swap | — |
+| 15 | `CONNECT tunnel failed, response 403` inside the sandbox | Host not in policy → proxy refused it. This is expected behavior **[docs]** | Check the denied flow with `nemoclaw <sb> logs`, then review presets | Repeated egress denials isolate the sandbox (NS5) |
 
 ---
 
-## 1. 왜 이런 문제가 생기나 — 구조
+## 1. Why these problems happen — architecture
 
 ```text
-nemoclaw (Node CLI, 호스트)        ← 편의 계층: onboard, 프리셋, 상태 점검, 잠금
-   │  호스트 잠금 ~/.nemoclaw-portable-host.lock
-   │  샌드박스별 잠금 ~/.nemoclaw/state/mcp-lifecycle-locks/<sha256(이름)>.lock
+nemoclaw (Node CLI, host)          ← convenience layer: onboard, presets, health checks, locks
+   │  host lock     ~/.nemoclaw-portable-host.lock
+   │  sandbox lock  ~/.nemoclaw/state/mcp-lifecycle-locks/<sha256(name)>.lock
    ▼
-openshell (CLI) ──► openshell-gateway (127.0.0.1:8080)   ← 실제 격리 엔진: 정책 강제, 실행
+openshell (CLI) ──► openshell-gateway (127.0.0.1:8080)   ← the real isolation engine: enforces policy, runs commands
                          ▼
-                Docker 컨테이너 안 k3s ──► 샌드박스 (OpenClaw, landlock, 네트워크 프록시)
+                k3s inside a Docker container ──► sandbox (OpenClaw, landlock, network proxy)
 ```
 
-- **불안정한 쪽은 위층(nemoclaw CLI)이다.** 같은 시점에 `openshell policy get --base`는 1초 안에 끝났고, nemoclaw 의 샌드박스 명령은 45초 넘게 멈췄다 **[실측]**.
-- nemoclaw 는 "안전하게 멈추는" 쪽으로 설계돼 있다. 잠금 주인을 확신할 수 없으면 뺏지 않고 기다린다. 보안에는 맞지만 **가용성은 나빠진다**. 특히 WSL2 처럼 PID 네임스페이스가 부팅마다 바뀌는 환경에서 그렇다.
+- **The unstable part is the top layer (nemoclaw CLI).** At the same moment, `openshell policy get --base` finished in under a second while nemoclaw sandbox commands hung for more than 45 seconds **[measured]**.
+- nemoclaw is designed to "stop safely". If it cannot be sure who owns a lock, it waits instead of taking it. That is right for safety but **hurts availability**, especially on WSL2 where the PID namespace changes on every boot.
 
-## 2. 잠금 문제 자세히
+## 2. Locks in detail
 
-### 2.1 호스트 잠금 `~/.nemoclaw-portable-host.lock`
-- 디렉터리이고, 안의 `owner` 파일에 PID 가 들어 있다 **[소스: `src/lib/state/registry/lock.ts`]**.
-- 재시도는 `LOCK_RETRY_MS = 100`, `LOCK_MAX_RETRIES = 120`이라 약 12초 뒤에 실패한다. 실측 13.1초와 일치한다.
-- 메시지의 "portable"은 Portable 프로필을 안 써도 나온다. 이름이 오해를 부른다는 지적이 있다 **[이슈 #11903]**.
-- 같은 잠금 문제가 경로만 바꿔 반복 보고된다: 중단된 onboard 가 남긴 잠금을 회수 못 함 **[#10461]**, uninstall 경합 시 원인 대신 재시도 소진만 표시 **[#11132]**, 소유권 오류가 고쳐진 뒤 v0.0.132 에서 재발 **[#9746 → #13017]**.
+### 2.1 Host lock `~/.nemoclaw-portable-host.lock`
+- It is a directory; the `owner` file inside holds a PID **[source: `src/lib/state/registry/lock.ts`]**.
+- Retries are `LOCK_RETRY_MS = 100` and `LOCK_MAX_RETRIES = 120`, so it fails after about 12 seconds. This matches the measured 13.1 s.
+- The word "portable" appears even if you never used the Portable profile; the name has been called misleading **[issue #11903]**.
+- The same lock problem keeps coming back on different code paths: an interrupted onboard leaves a lock that is never reclaimed **[#10461]**; uninstall contention reports retry exhaustion instead of the cause **[#11132]**; an ownership error was fixed and then regressed in v0.0.132 **[#9746 → #13017]**.
 
-### 2.2 샌드박스별 잠금 `mcp-lifecycle-locks`
-- 대화형 세션(`connect` 등)을 뺀 **모든 샌드박스 대상 명령**이 공통 기반 클래스에서 `withSandboxLifecycleLock`으로 감싸진다. 호스트 잠금(펜스)을 잡은 뒤 이 잠금을 또 잡는다 **[소스: `src/lib/cli/nemoclaw-oclif-command.ts` `runAdmittedLifecycleBoundary`, `src/lib/actions/sandbox/lifecycle/lock.ts`]**.
-- 예외는 `status` 하나다. 호스트 잠금이 바쁘면 잠금 없이 읽는 경로로 빠지고 추론 확인을 생략한다 → `status --json`만 빨랐던 이유 **[소스][실측]**.
-- 기본 대기 시간은 `DEFAULT_TIMEOUT_MS = 30 * 60_000`, 즉 **30분**이고 기다리는 동안 출력이 없다 **[소스: `src/lib/state/mcp-lifecycle-lock-acquisition.ts`]**.
-- 잠금 파일에는 `pid`, `hostIdentity`(machine-id), `pidNamespaceIdentity`(`/proc/self/ns/pid`)가 기록된다. 주인이 **다른 호스트이거나 다른 PID 네임스페이스면 "active"로 보고 절대 회수하지 않는다** **[소스: `mcp-lifecycle-lock-identity.ts` `classifyMcpLifecycleLock`]**.
-  - 의도: 공유 디렉터리에서 남의 프로세스를 잘못 판단해 상호 배제를 깨지 않으려는 것이다.
-  - 부작용: WSL 을 재시작하면 이전 부팅에서 남은 잠금이 영원히 "살아 있는 주인"으로 취급된다 → 30분 멈춤 **[이슈 #14070]**.
+### 2.2 Per-sandbox lock `mcp-lifecycle-locks`
+- **Every sandbox-scoped command** except interactive sessions (`connect` and similar) is wrapped in `withSandboxLifecycleLock` by the shared base command class. It takes the host lock (fence) and then this lock as well **[source: `src/lib/cli/nemoclaw-oclif-command.ts` `runAdmittedLifecycleBoundary`, `src/lib/actions/sandbox/lifecycle/lock.ts`]**.
+- The only exception is `status`. When the host lock is busy it falls back to an unlocked read and skips the inference check → this is why only `status --json` was fast **[source][measured]**.
+- The default wait is `DEFAULT_TIMEOUT_MS = 30 * 60_000`, i.e. **30 minutes**, with no output while waiting **[source: `src/lib/state/mcp-lifecycle-lock-acquisition.ts`]**.
+- The lock file records `pid`, `hostIdentity` (machine-id) and `pidNamespaceIdentity` (`/proc/self/ns/pid`). If the owner is **on another host or in another PID namespace, it is treated as "active" and never reclaimed** **[source: `mcp-lifecycle-lock-identity.ts` `classifyMcpLifecycleLock`]**.
+  - Intent: never misjudge another machine's or namespace's process and break mutual exclusion on a shared directory.
+  - Side effect: after a WSL restart, a lock left by the previous boot is treated as a live owner forever → 30-minute hangs **[issue #14070]**.
 
-### 2.3 실제 사례 (2026-11-27)
-- 증상: `my-assistant` 대상 nemoclaw 명령이 모두 무출력으로 45초 이상 멈춤. 텍스트 `status`, `doctor`, `policy list/get`, `exec -- true`, dry-run 모두 같았다.
-- 진단(`nemoclaw_lock_doctor.sh`): 샌드박스 잠금이 **2026-11-25 04:44 UTC**에 만들어진 채 남아 있었다. 주인 PID 는 이미 종료됐고 `foreign-namespace`였다(이후 WSL 이 재부팅됨).
-- 조치: `--clean`으로 잠금 파일 이름을 바꿨다 → `nemoclaw my-assistant policy list` **45초 이상 → 1.15초**.
-- 교훈: WSL 재시작이나 PC 재부팅 뒤 nemoclaw 샌드박스 명령이 말없이 멈추면, 다른 걸 의심하기 전에 lock doctor 부터 돌린다.
+### 2.3 Real incident (2026-11-27)
+- Symptom: every nemoclaw command against `my-assistant` hung silently for more than 45 seconds — text `status`, `doctor`, `policy list/get`, `exec -- true` and dry-runs alike.
+- Diagnosis (`nemoclaw_lock_doctor.sh`): a sandbox lock created at **2026-11-25 04:44 UTC** was still there. Its owner PID had already exited and it was `foreign-namespace` (WSL had rebooted since).
+- Fix: `--clean` renamed the lock file → `nemoclaw my-assistant policy list` went from **over 45 s to 1.15 s**.
+- Lesson: if nemoclaw sandbox commands hang silently after a WSL or PC restart, run the lock doctor before suspecting anything else.
 
-### 2.4 진단과 정리
+### 2.4 Diagnose and clean up
 ```bash
-bash -l scripts/nemoclaw_lock_doctor.sh          # 읽기 전용 진단
-bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종료 + 주인 없는 외부 네임스페이스 잠금 이름 변경
+bash -l scripts/nemoclaw_lock_doctor.sh          # read-only diagnosis
+bash -l scripts/nemoclaw_lock_doctor.sh --clean  # stop hung CLI processes + rename orphaned foreign-namespace locks
 ```
-- 종료 대상: `node …/nemoclaw …` CLI 프로세스 중 90초 이상 지난 것. `connect`/`launch`/`onboard`/`rebuild`/`destroy`/`update`/`uninstall`은 건드리지 않는다.
-- 잠금 파일은 **지우지 않고** `*.stale-<시각>`으로 이름만 바꾼다(되돌릴 수 있음). nemoclaw CLI 가 하나라도 돌고 있으면 잠금은 건드리지 않는다.
-- 게이트웨이, 샌드박스 컨테이너, docker, ollama 는 대상이 아니다.
+- Stopped: `node …/nemoclaw …` CLI processes older than 90 seconds. `connect`/`launch`/`onboard`/`rebuild`/`destroy`/`update`/`uninstall` are never touched.
+- Lock files are **renamed, not deleted** (`*.stale-<timestamp>`), so the change can be undone. Locks are left alone while any nemoclaw CLI process is still running.
+- The gateway, sandbox containers, docker and ollama are never targeted.
 
-## 3. WSL2 에서 특히 자주 보이는 것
+## 3. Common on WSL2
 
-| 증상 | 원인 / 확인 | 조치 |
+| Symptom | Cause / check | Action |
 |---|---|---|
-| `docker` 가 `npipe:////./pipe/dockerDesktopLinuxEngine` 오류 | Docker Desktop 이 꺼져 있음 **[실측]** | Docker Desktop 실행. WSL integration 에서 Ubuntu 켜기 **[문서]** |
-| WSL 안 `docker ps` 가 정상인데 nemoclaw 만 멈춤 | 2절 잠금 | lock doctor |
-| PowerShell 에서 받은 저장소의 `.sh` 실행 시 `$'\r': command not found` | Windows git 이 CRLF 로 체크아웃 **[실측]** | `.gitattributes`에 `*.sh text eol=lf` (적용함) |
-| PowerShell 의 `git clone … ~/x` 가 `C:\WINDOWS\system32\~\x`에 생김 | PowerShell 은 네이티브 명령 인자의 `~`를 확장하지 않음 **[실측]** | WSL 안에서 작업하거나 전체 경로 사용 |
-| PowerShell 에서 `bash -lc '… $! …'` 결과 PID 가 빔 | PowerShell → bash 로 넘어가며 특수 변수·따옴표가 깨짐 **[실측]** | 긴 명령은 스크립트 파일로 |
-| onboard 가 "Configuring inference provider"에서 멈춤 | Windows 쪽 Ollama 확인이 타임아웃 없이 대기 **[이슈 #9604, 수정됨]** | 최신 버전 |
-| WSL2 + GPU 에서 샌드박스가 생성 직후 사라짐 | 초기 버전이 `--gpu`를 강제 **[이슈 #208, 초기]** | 현재 버전은 GPU 검증 후 사용(실측: `cudaVerified: true`) |
+| `docker` fails with `npipe:////./pipe/dockerDesktopLinuxEngine` | Docker Desktop is not running **[measured]** | Start Docker Desktop; enable Ubuntu under WSL integration **[docs]** |
+| `docker ps` works inside WSL but nemoclaw hangs | Locks from section 2 | Lock doctor |
+| Running a `.sh` from a repo cloned in PowerShell gives `$'\r': command not found` | Windows git checked it out with CRLF **[measured]** | `*.sh text eol=lf` in `.gitattributes` (done) |
+| `git clone … ~/x` in PowerShell lands in `C:\WINDOWS\system32\~\x` | PowerShell does not expand `~` in arguments to native commands **[measured]** | Work inside WSL or use full paths |
+| `bash -lc '… $! …'` from PowerShell yields an empty PID | Special variables and quotes break between PowerShell and bash **[measured]** | Put long commands in a script file |
+| onboard hangs at "Configuring inference provider" | Windows-side Ollama check waited with no timeout **[issue #9604, fixed]** | Latest version |
+| Sandbox disappears right after creation on WSL2 + GPU | Early versions forced `--gpu` **[issue #208, early]** | Current version verifies the GPU first (measured: `cudaVerified: true`) |
 
-## 4. "느리다"의 정체
+## 4. What "slow" actually means
 
-- **`nemoclaw <sb> status`(텍스트):** 게이트웨이·샌드박스 상태를 확인한 뒤, 샌드박스 안에서 추론 엔드포인트로 **실제 요청**을 보낸다. 시도당 90초, 일시 오류면 최대 3회다 **[소스: `inference-invocation-probe.ts` `INFERENCE_INVOCATION_REQUEST_TIMEOUT_SECONDS = 90`][문서]**. 로컬 모델이 처음 메모리에 올라가는 중이면 오래 걸린다.
-- **`nemoclaw <sb> status --json`:** 다른 작업이 진행 중이면 추론 확인을 생략한다(`inferenceProbeSuppressed: true`) **[실측][문서]**. 실측 2초.
-- **`openshell policy get --base <sb>`:** 게이트웨이에 바로 묻는다. 실측 1초 미만.
-- 결론: **실행 중 점검에는 `status --json`과 `openshell`을 쓰고, 텍스트 `status`/`doctor`는 사람이 볼 때만 쓴다.**
+- **`nemoclaw <sb> status` (text):** checks gateway and sandbox state, then sends a **real request** to the inference endpoint from inside the sandbox — 90 s per attempt, up to 3 attempts on transient errors **[source: `inference-invocation-probe.ts` `INFERENCE_INVOCATION_REQUEST_TIMEOUT_SECONDS = 90`][docs]**. A local model loading into memory for the first time makes it slow.
+- **`nemoclaw <sb> status --json`:** skips the inference check when another operation is running (`inferenceProbeSuppressed: true`) **[measured][docs]**. Measured 2 s.
+- **`openshell policy get --base <sb>`:** asks the gateway directly. Measured under 1 s.
+- Bottom line: **use `status --json` and `openshell` for runtime checks; use text `status`/`doctor` only when a person is reading.**
 
-## 5. 정책(네트워크·파일시스템) 함정
+## 5. Policy traps (network and filesystem)
 
-1. **`openshell policy set`은 전체 교체다.** 일부만 넣으면 나머지 프리셋이 조용히 사라진다. 변경은 `nemoclaw <sb> policy add`(병합 후 검증)로만 한다 **[문서]**.
-2. **`--base` vs `--full`:** `--base`는 사람이 넣은 정책만 보여 준다(프리셋 이름이 키). `--full`/`status`는 provider 가 합성한 `_provider_*` 항목까지 보여 준다 **[실측]**. 드리프트 비교 기준을 하나로 정해야 한다. 우리는 `--base`를 쓴다.
-3. **넓은 기본 프리셋:** `brew-balanced`는 `github.com`, `ghcr.io` 등에 `access: full`을 주고, 일부는 `tls: skip`까지 붙인다 **[실측]**. TLS 를 건너뛰면 경로 규칙을 검사할 수 없으므로 "그 호스트로는 무엇이든"이 된다 → 데이터 유출 경로가 된다.
-4. **`binaries` 글롭 허용:** `/usr/bin/python3*`, `/sandbox/.uv/python/**/python*` **[실측]**. 실행 파일 이름만으로 정밀하게 격리하기 어렵다 → **격리 단위는 샌드박스**로 잡는다.
-5. **커스텀 프리셋은 NemoClaw 의 검토를 거치지 않는다.** 이름은 소문자 RFC 1123 이어야 하고, 내장 프리셋 이름(`pypi`, `slack` 등)과 겹치면 안 된다 **[문서]**.
-6. **비대화 실행에서는 `--yes` 필요:** 없으면 확인 프롬프트에서 멈춘다. 미리보기는 `--dry-run` **[실측: `policy add --help`]**.
-7. **채널 프리셋 잔존:** 채널을 지워도 허용 정책이 남는 버그가 있었다 **[이슈 #9109]**. `policy list`로 정기 확인한다.
+1. **`openshell policy set` replaces everything.** Pass a partial document and the other presets silently vanish. Change policy only with `nemoclaw <sb> policy add` (merges, then validates) **[docs]**.
+2. **`--base` vs `--full`:** `--base` shows only what people added (preset names are the keys). `--full`/`status` also show provider-composed `_provider_*` entries **[measured]**. Pick one as the drift baseline; we use `--base`.
+3. **Broad default presets:** `brew-balanced` grants `access: full` to `github.com`, `ghcr.io` and others, some with `tls: skip` **[measured]**. Skipping TLS means path rules can't be inspected, so it becomes "anything to that host" → a data-exfiltration route.
+4. **`binaries` globs are allowed:** `/usr/bin/python3*`, `/sandbox/.uv/python/**/python*` **[measured]**. Binary names alone can't isolate precisely → **the sandbox is the isolation unit**.
+5. **Custom presets skip NemoClaw's review.** Names must be lowercase RFC 1123 and must not collide with built-in presets (`pypi`, `slack`, …) **[docs]**.
+6. **Non-interactive runs need `--yes`:** without it the confirmation prompt hangs. Preview with `--dry-run` **[measured: `policy add --help`]**.
+7. **Channel presets lingering:** a bug left a channel's allowance in place after the channel was removed **[issue #9109]**. Check `policy list` regularly.
 
-## 6. 추론(inference) 함정
+## 6. Inference traps
 
-- 샌드박스 안 에이전트는 `inference.local`로만 모델을 부르고, OpenShell 이 실제 엔드포인트로 중계한다 **[문서][실측: `managed_inference` 프리셋]**.
-- 로컬 Ollama 가 루프백에만 바인딩돼 있으면 샌드박스에서 못 닿는다. `host.docker.internal`은 k3s 네트워크에서 신뢰할 수 없다 **[문서]**. 실측 경로는 `host.openshell.internal:11435`(사설 IP 대역만 허용)이다.
-- 컨텍스트 길이 부족(OpenClaw 는 16384 이상 권장), 콜드 로드 지연 → 관련 타임아웃 환경변수: `NEMOCLAW_AGENT_TIMEOUT`(기본 600초, 이미지에 고정), `NEMOCLAW_LOCAL_INFERENCE_TIMEOUT`(180초), `NEMOCLAW_SANDBOX_READY_TIMEOUT`(180초) **[문서]**.
+- The agent inside the sandbox calls models only through `inference.local`; OpenShell relays to the real endpoint **[docs][measured: `managed_inference` preset]**.
+- A local Ollama bound only to loopback is unreachable from the sandbox. `host.docker.internal` is unreliable on the k3s network **[docs]**. The measured route is `host.openshell.internal:11435` (private IP ranges only).
+- Too-short context (OpenClaw wants 16384+) and cold model loads → timeout variables: `NEMOCLAW_AGENT_TIMEOUT` (default 600 s, baked into the image), `NEMOCLAW_LOCAL_INFERENCE_TIMEOUT` (180 s), `NEMOCLAW_SANDBOX_READY_TIMEOUT` (180 s) **[docs]**.
 
-## 7. 자원·플랫폼
+## 7. Resources and platform
 
-- 샌드박스 이미지는 압축 상태로 약 2.4GB **[문서]**. 메모리 8GB 이하 + 스왑 없음이면 이미지 푸시 중 OOM(exit 137) **[문서]**.
-- 컨테이너 런타임 자원이 4 vCPU / 8GiB 미만이면 빌드가 무출력으로 멈출 수 있다 **[문서]**.
-- Landlock 은 `best_effort`라서, 커널이 지원하지 않으면 **경고만 하고 약화된 채로 실행**된다 **[문서][실측 정책]**.
+- The sandbox image is about 2.4 GB compressed **[docs]**. With 8 GB RAM or less and no swap, the image push can be OOM-killed (exit 137) **[docs]**.
+- Below 4 vCPU / 8 GiB for the container runtime, the build can stall with no output **[docs]**.
+- Landlock is `best_effort`: if the kernel can't support it, the sandbox **runs degraded with only a warning** **[docs][measured policy]**.
 
-## 8. 텔레메트리
+## 8. Telemetry
 
-- v0.0.141부터 설치기·CLI 운영 텔레메트리가 **기본으로 켜져** NVIDIA 로 전송된다 **[문서: 11/3 릴리스 노트]**.
-- 끄기: 셸마다 `export NEMOCLAW_DISABLE_TELEMETRY=1` **[문서: CLI Commands Reference]**.
-- 폐쇄망·규제 환경이라면 기본값을 반드시 확인해야 하는 항목이다. 우리 래퍼는 기본으로 끈다.
+- Since v0.0.141, installer and CLI operation telemetry is **on by default** and sent to NVIDIA **[docs: 2026-11-03 release notes]**.
+- To turn it off: `export NEMOCLAW_DISABLE_TELEMETRY=1` in every shell **[docs: CLI Commands Reference]**.
+- For air-gapped or regulated environments this default must be checked. Our wrapper turns it off by default.
 
-## 9. 이 저장소의 대응 (코드 위치)
+## 9. How this repository responds (code locations)
 
-| 문제 | 대응 | 위치 |
+| Problem | Response | Location |
 |---|---|---|
-| 멈춤 | 모든 호출에 타임아웃, 초과 시 **프로세스 그룹 종료**, 실패는 차단(fail closed) | `orchestra/sandbox/nemoclaw/cli.py` `_kill_group` |
-| 잠금 경합 | 우리 nemoclaw 호출은 `flock` 단일 실행. 잠금 오류는 `nemoclaw_host_lock_busy` | `cli.py` `_single_flight` |
-| 느린 읽기 | 정책 조회는 `openshell policy get --base`, 상태는 `status --json` | `cli.py` `command()` |
-| 출력 형식 | OpenShell 헤더(`Version/Hash/…` + `---`) 파싱. 모르는 헤더는 거부 | `orchestra/sandbox/nemoclaw/live.py` `split_policy_output` |
-| 정책 교체 위험 | `policy set` 명령 없음. 변경은 승인 후 `policy add --from-file … --yes` 한 번만 | `cli.py`, `orchestra/security/policy_change.py` |
-| 텔레메트리 | 하위 프로세스 환경에 `NEMOCLAW_DISABLE_TELEMETRY=1` | `cli.py` `_child_env` |
-| 운영 진단 | 실측 점검, 멈춤 진단, 잠금 진단·정리 | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
-| 회귀 방지 | 실측 출력 fixture 기반 테스트 | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
+| Hangs | Timeout on every call; on expiry **kill the process group**; failures block (fail closed) | `orchestra/sandbox/nemoclaw/cli.py` `_kill_group` |
+| Lock contention | Our nemoclaw calls are single-flight via `flock`; lock errors become `nemoclaw_host_lock_busy` | `cli.py` `_single_flight` |
+| Slow reads | Policy via `openshell policy get --base`, state via `status --json` | `cli.py` `command()` |
+| Output format | Parse the OpenShell banner (`Version/Hash/…` + `---`); unknown banners are rejected | `orchestra/sandbox/nemoclaw/live.py` `split_policy_output` |
+| Policy replacement risk | No `policy set`; changes are one approved `policy add --from-file … --yes` | `cli.py`, `orchestra/security/policy_change.py` |
+| Telemetry | `NEMOCLAW_DISABLE_TELEMETRY=1` in the child environment | `cli.py` `_child_env` |
+| Operational diagnosis | Install probe, hang diagnosis, lock diagnosis and cleanup | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
+| Regression prevention | Tests built on real CLI output fixtures | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
-남은 일: 워커를 한 번 띄워 계속 쓰는 실행 경로, 샌드박스 안 2차 필터(N3), 커스텀 프리셋 키 형식(`nemoclaw_custom__…`) 실측 확인.
+Still to do: a long-lived worker execution path, in-sandbox second-line filters (N3), and measuring the custom preset key format (`nemoclaw_custom__…`).
 
 ---
 
-## 10. 면접 포인트
+## 10. Interview notes
 
-**Q1. 샌드박스 명령이 출력 없이 멈춥니다. 어떻게 접근했나요?**
-- 증상을 계층별로 나눴다. Docker(`docker ps` 0.05초) → 게이트웨이(`openshell policy get` 1초 미만) → nemoclaw CLI(45초 초과) 순으로 재서 **문제 계층을 CLI 로 한정**했다.
-- 멈춘 프로세스를 관찰했다. 하위 프로세스는 없었고 Node 혼자 대기 중이었다 → 외부 프로그램이 아니라 내부 대기다.
-- 해당 버전 소스를 읽어 원인을 특정했다. 30분 무출력 대기 잠금과, 다른 PID 네임스페이스의 주인은 회수하지 않는 규칙이었다. 공개 이슈와도 대조했다.
-- 재발 방지: 진단 도구, 래퍼의 타임아웃·프로세스 그룹 종료, 실행 경로 분리.
+**Q1. Sandbox commands hang with no output. How did you approach it?**
+- Split the symptom by layer and measured each: Docker (`docker ps` 0.05 s) → gateway (`openshell policy get` under 1 s) → nemoclaw CLI (over 45 s). That **narrowed the problem to the CLI layer**.
+- Observed the hung process: no child processes, Node waiting on its own → an internal wait, not an external program.
+- Read the source for that exact version to pin the cause: a lock with a 30-minute silent wait, and a rule that never reclaims owners from another PID namespace. Cross-checked against public issues.
+- Prevented recurrence: a diagnosis tool, wrapper timeouts with process-group kill, and a separate execution path.
 
-**Q2. 왜 NemoClaw 는 오래된 잠금을 그냥 지우지 않나요? 그게 맞는 설계인가요?**
-- 잠금 주인이 다른 네임스페이스나 다른 호스트에 있으면 "죽었다"고 확신할 수 없다. 잘못 지우면 두 작업이 동시에 정책을 바꾸는 더 큰 사고가 난다.
-- 그래서 **안전성(상호 배제)을 가용성보다 우선**한 선택이다. 문제는 그 대가를 사용자에게 알리지 않는다는 점이다(30분 무출력).
-- 개선안: 대기 중 진행 메시지, 주인 정보 표시, 운영자 명시 회수 명령, 리스(lease) 만료.
+**Q2. Why doesn't NemoClaw just delete stale locks? Is that the right design?**
+- If the owner is in another namespace or on another host, you can't be sure it is dead. Deleting it wrongly lets two operations change policy at once — a much worse failure.
+- So it **puts safety (mutual exclusion) ahead of availability**. The flaw is that it hides the cost from the user (30 minutes of silence).
+- Improvements: progress output while waiting, show the owner, an explicit operator reclaim command, lease expiry.
 
-**Q3. fail-closed 와 가용성은 어떻게 균형을 잡나요?**
-- 보안 판단 경로(허용/차단)는 fail-closed 로 둔다. 응답이 없으면 차단한다.
-- 대신 차단이 장애로 번지지 않게 한다: 짧은 타임아웃, 빠른 대체 읽기 경로(`openshell`), 명확한 오류 코드(`cli_busy`, `nemoclaw_host_lock_busy`), 사람이 쓰는 진단 도구.
-- "막혔다"와 "왜 막혔는지 모른다"는 다르다. 앞의 것은 설계이고, 뒤의 것은 결함이다.
+**Q3. How do you balance fail-closed with availability?**
+- Keep the security decision path (allow/deny) fail-closed: no answer means deny.
+- But don't let a deny turn into an outage: short timeouts, a fast alternative read path (`openshell`), precise error codes (`cli_busy`, `nemoclaw_host_lock_busy`), and diagnosis tools for humans.
+- "Blocked" and "blocked for an unknown reason" are different. The first is a design choice; the second is a defect.
 
-**Q4. 정책 변경을 왜 `policy add`만 허용하나요?**
-- `policy set`은 전체 교체라서, 부분 문서를 넣으면 기존 허용이 조용히 사라지거나 반대로 넓어질 수 있다.
-- 병합 + 사후 검증(드리프트 검사) + 사람 승인 + 감사 기록을 한 번의 추가 호출로 묶어야 추적할 수 있다. 실패하면 재시도하지 않고 "결과 불명"으로 남긴다. 같은 변경이 두 번 적용되는 것을 막기 위해서다.
+**Q4. Why allow only `policy add` for policy changes?**
+- `policy set` replaces everything, so a partial document can silently drop existing allowances or, conversely, widen them.
+- Merge + post-change verification (drift check) + human approval + audit record must be tied to one additive call to stay traceable. On failure we don't retry; we record "outcome unknown" so the same change can't be applied twice.
 
-**Q5. 샌드박스가 있는데 왜 별도 보안 계층(가드)이 필요한가요?**
-- 샌드박스(담장)는 "어디로 갈 수 있나"를 막는다. 허용된 경로로 하는 나쁜 행동은 못 막는다. 예: 허용된 결제 API 로 다른 금액 결제, 허용된 GitHub 로 개인정보 전송.
-- 가드(대문)는 "이걸 해도 되나"를 판단한다: 인젝션, 승인 없는 결제, 권한 밖 위임.
-- 게다가 이 환경의 담장은 `best_effort` Landlock, `access: full` 프리셋처럼 생각보다 낮을 수 있다 → 다층 방어가 필요하다.
+**Q5. You have a sandbox — why a separate security layer (guard)?**
+- The sandbox (the wall) controls *where* things can go. It can't stop bad actions over allowed routes, e.g. paying the wrong amount through an allowed payment API, or sending personal data to an allowed GitHub.
+- The guard (the gate) decides *whether* an action should happen: injection, unapproved payments, out-of-scope delegation.
+- And in this environment the wall can be lower than it looks — `best_effort` Landlock, `access: full` presets → defense in depth is required.
 
-**Q6. 외부 alpha 도구를 운영에 들일 때 원칙은?**
-- 버전 고정, 실측으로 문법 확인, 실측 출력을 fixture 로 만들어 회귀 테스트.
-- 인터페이스 뒤에 숨겨 교체 가능하게 하고(`SandboxRunner`), 실행 경로에서는 가장 안정적인 하위 계층(`openshell`)에 붙는다.
-- 기본값을 검토한다: 텔레메트리 기본 켜짐, 넓은 기본 프리셋.
-- 알려진 문제를 문서화하고 업스트림 이슈와 연결한다(이 문서).
+**Q6. Principles for bringing an alpha external tool into production?**
+- Pin the version, verify syntax by measurement, turn real outputs into fixtures for regression tests.
+- Hide it behind an interface so it can be replaced (`SandboxRunner`), and bind the execution path to the most stable lower layer (`openshell`).
+- Review the defaults: telemetry on by default, broad default presets.
+- Document known issues and link them to upstream issues (this document).
 
-**Q7. 디버깅하면서 직접 겪은 실수는?**
-- 동시에 점검을 두 번 돌려 잠금 경합을 스스로 만들었다 → 단일 실행 잠금을 추가했다.
-- "Docker 가 Windows 쪽 프로그램이라 느리다"는 가설을 세웠는데, 측정(0.047초)으로 기각했다 → **가설은 측정으로 확인한 뒤 고친다**.
+**Q7. A mistake you made while debugging?**
+- Ran the probe twice at once and created the lock contention myself → added a single-instance lock.
+- Hypothesized "Docker is slow because it's the Windows binary", then rejected it by measurement (0.047 s) → **confirm a hypothesis by measuring before fixing**.
 
 ---
 
-## 출처
+## Sources
 
-- NemoClaw v0.0.145 소스: `src/lib/state/registry/lock.ts`, `src/lib/state/mcp-lifecycle-lock-acquisition.ts`, `src/lib/state/mcp-lifecycle-lock-identity.ts`, `src/lib/actions/sandbox/lifecycle/lock.ts`, `src/commands/sandbox/exec.ts`, `src/lib/actions/sandbox/inference-invocation-probe.ts`, `docs/reference/troubleshooting.mdx`
-- 이슈: [#14070](https://github.com/NVIDIA/NemoClaw/issues/14070) · [#10663](https://github.com/NVIDIA/NemoClaw/issues/10663) · [#12281](https://github.com/NVIDIA/NemoClaw/issues/12281) · [#11903](https://github.com/NVIDIA/NemoClaw/issues/11903) · [#11132](https://github.com/NVIDIA/NemoClaw/issues/11132) · [#10461](https://github.com/NVIDIA/NemoClaw/issues/10461) · [#9746](https://github.com/NVIDIA/NemoClaw/issues/9746) · [#13017](https://github.com/NVIDIA/NemoClaw/issues/13017) · [#9737](https://github.com/NVIDIA/NemoClaw/issues/9737) · [#9604](https://github.com/NVIDIA/NemoClaw/issues/9604) · [#9109](https://github.com/NVIDIA/NemoClaw/issues/9109) · [#208](https://github.com/NVIDIA/NemoClaw/issues/208)
-- 문서: [Troubleshooting](https://docs.nvidia.com/nemoclaw/reference/troubleshooting) · [CLI Commands Reference](https://docs.nvidia.com/nemoclaw/latest/reference/commands) · [Create Custom Policy Presets](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/network-policy/configure-policies/create-custom-policy-presets) · [Configure Inference Timeouts](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/inference/manage-inference/configure-inference-timeouts) · [Release notes 2026-11-03 (v0.0.141)](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/release-notes/2026/11/3)
-- 실측 기록: `C:\Users\Codelab\nemoclaw-probe\2026112*` (로컬), fixture: `tests/fixtures/nemoclaw/`
+- NemoClaw v0.0.145 source: `src/lib/state/registry/lock.ts`, `src/lib/state/mcp-lifecycle-lock-acquisition.ts`, `src/lib/state/mcp-lifecycle-lock-identity.ts`, `src/lib/actions/sandbox/lifecycle/lock.ts`, `src/lib/cli/nemoclaw-oclif-command.ts`, `src/commands/sandbox/exec.ts`, `src/lib/actions/sandbox/inference-invocation-probe.ts`, `docs/reference/troubleshooting.mdx`
+- Issues: [#14070](https://github.com/NVIDIA/NemoClaw/issues/14070) · [#10663](https://github.com/NVIDIA/NemoClaw/issues/10663) · [#12281](https://github.com/NVIDIA/NemoClaw/issues/12281) · [#11903](https://github.com/NVIDIA/NemoClaw/issues/11903) · [#11132](https://github.com/NVIDIA/NemoClaw/issues/11132) · [#10461](https://github.com/NVIDIA/NemoClaw/issues/10461) · [#9746](https://github.com/NVIDIA/NemoClaw/issues/9746) · [#13017](https://github.com/NVIDIA/NemoClaw/issues/13017) · [#9737](https://github.com/NVIDIA/NemoClaw/issues/9737) · [#9604](https://github.com/NVIDIA/NemoClaw/issues/9604) · [#9109](https://github.com/NVIDIA/NemoClaw/issues/9109) · [#208](https://github.com/NVIDIA/NemoClaw/issues/208)
+- Docs: [Troubleshooting](https://docs.nvidia.com/nemoclaw/reference/troubleshooting) · [CLI Commands Reference](https://docs.nvidia.com/nemoclaw/latest/reference/commands) · [Create Custom Policy Presets](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/network-policy/configure-policies/create-custom-policy-presets) · [Configure Inference Timeouts](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/inference/manage-inference/configure-inference-timeouts) · [Release notes 2026-11-03 (v0.0.141)](https://docs.nvidia.com/nemoclaw/user-guide/openclaw/release-notes/2026/11/3)
+- Measurement records: local probe output folders (not committed); fixtures: `tests/fixtures/nemoclaw/` on the `21-nemoclaw-cli` branch.
