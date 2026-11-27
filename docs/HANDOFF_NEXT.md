@@ -55,12 +55,13 @@ python scripts/sync_third_party.py --check
 ```
 작은 단위로 나눠 커밋한다(예: providers+loop_adapter → ExecRequest.agent → 승인 서명 → 감사 훅·kill switch → concert_demo·pr_review 시나리오 → cli_adapter).
 
-## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로 (오프라인 완료, 실설치 확인 남음)
+## 2단계 — 워커 연결 (N2): 한 번 띄워 계속 쓰는 실행 경로 (오프라인 완료, 워커 실연동 남음)
 
 > **오프라인 구현 완료 (2026-11-27).** 아래 "방향"의 `nemoclaw exec` 상시 실행은 소스 확인 결과 동작하지 않아(입력을 EOF 까지 모음, 실행 내내 잠금 보유) **OpenShell SSH**로 바꿨다. 근거와 실설치에서 남은 확인은 [`NEMOCLAW_REALITY.md`](NEMOCLAW_REALITY.md) §3.1.
 > - 구현: `orchestra/sandbox/nemoclaw/persistent.py`, `ssh_launcher.py`, 워커 `--serve`. 기본값은 기존 1회 실행이며 `NEMOCLAW_TRANSPORT=ssh_stream`으로 켠다. 1회 실행 명령에는 `--stdin`을 추가했다.
 > - 완료 조건: `tests/test_nemoclaw_persistent.py`(실프로세스 오프라인 왕복 + `-m nemoclaw` 실연동 1개, 기본 skip).
-> - 남음: `scripts/nemoclaw_ssh_stream_check.sh` 실행 → (사용자 승인 후) 이미지 재생성, capability 키 전달 경로 결정 → 실연동 테스트.
+> - 실설치 SSH 점검: 통과(2026-11-27, `scripts/nemoclaw_ssh_stream_check.sh`, REALITY §3.1).
+> - 남음: (사용자 승인 후) 이미지 재생성, capability 키 전달 경로 결정 → 실연동 테스트.
 > - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).

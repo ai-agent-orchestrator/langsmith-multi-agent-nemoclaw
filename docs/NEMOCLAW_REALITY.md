@@ -46,7 +46,7 @@
 | 10b | 추론 상태 | ❌(환경) `status`/`doctor` rc=1: 샌드박스 추론 요청이 HTTP 502. Ollama(11434)는 정상, 인증 프록시(127.0.0.1:11435) 미기동. 조치: `nemoclaw my-assistant connect`로 재기동. 개발·테스트는 ScriptedChatModel 이라 영향 없음 |
 | 11 | 텔레메트리 | ✅ 문서: v0.0.141+ 기본 켜짐, `NEMOCLAW_DISABLE_TELEMETRY=1`로 끔. 래퍼는 기본으로 끈다 |
 
-### 3.1 지속형 워커 경로 (N2) — 소스 확인, **실설치 미확인**
+### 3.1 지속형 워커 경로 (N2) — 소스 확인 + SSH 전제 실측, **워커 실연동 미확인**
 
 > 대조한 소스: `NVIDIA/NemoClaw` 태그 `v0.0.145`(`6f36fef`), `NVIDIA/OpenShell` 0.0.116(`d1155aa`).
 
@@ -54,7 +54,7 @@
 |---|---|---|---|
 | 12 | ❌ `exec` 한 번 띄우고 줄 단위 주고받기 | TTY 가 아닌 `openshell sandbox exec`는 입력을 **EOF 까지 모두 읽은 뒤**(상한 4MiB) 명령을 시작한다. `nemoclaw exec`는 이 명령을 호출하므로 같다 | `crates/openshell-cli/src/run.rs` `sandbox_exec_grpc` |
 | 13 | ❌ `nemoclaw exec` 상시 실행 | 원격 명령이 끝날 때까지 호스트 펜스와 샌드박스별 잠금 안에서 실행한다 → 상시 워커를 띄우면 다른 nemoclaw 명령이 막힌다 | `src/commands/sandbox/exec.ts`, `src/lib/actions/sandbox/lifecycle/lock.ts` |
-| 14 | ⚠️ OpenShell SSH | `openshell sandbox ssh-config <sb>` + 시스템 `ssh -T` 는 입력을 도착하는 대로 전달한다. 샌드박스 쪽은 `/bin/bash -lc <명령>`을 정책·네트워크 네임스페이스·Landlock 적용 후 실행한다 | `crates/openshell-cli/src/ssh.rs`, `crates/openshell-supervisor-process/src/ssh.rs` |
+| 14 | ✅ OpenShell SSH | **[실측]** `openshell sandbox ssh-config <sb>` + 시스템 `ssh -T` 는 입력을 도착하는 대로 전달한다. **[소스]** 샌드박스 쪽은 `/bin/bash -lc <명령>`을 정책·네트워크 네임스페이스·Landlock 적용 후 실행한다 | `crates/openshell-cli/src/ssh.rs`, `crates/openshell-supervisor-process/src/ssh.rs` |
 | 15 | ⚠️ 세션 환경변수 | 자식 환경을 비우고(`env_clear`) 기본값·sandbox spec 환경·프록시·CA·provider 값만 넣는다 → 이미지 `ENV`는 전달되지 않는다고 본다. `Dockerfile.worker`는 `/etc/profile.d/`에도 같은 값을 쓴다 | 같은 파일 `apply_child_env` |
 | 16 | ⚠️ SSH 인증 | 샌드박스 SSH 서버는 `none`·공개키 인증을 모두 수락하고 호스트 키를 고정하지 않는다. 접근 통제는 게이트웨이를 거치는 `ssh-proxy`가 맡는다 | 같은 파일 `auth_none`, `auth_publickey` |
 
@@ -63,9 +63,20 @@
 bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고 추가 stdout 0 바이트여야 한다
 ```
 
+실측 결과 (2026-11-27, 샌드박스 `my-assistant`, 워커 미설치):
+
+| 항목 | 결과 |
+|---|---|
+| `ssh-config` | Host `openshell-my-assistant.default`, ProxyCommand `openshell ssh-proxy --gateway-name nemoclaw --name my-assistant --workspace default` |
+| 세션 | 사용자 `sandbox`(uid 998), 작업 디렉터리 `/sandbox` |
+| 로그인 셸 | `/etc/profile`이 `profile.d`를 읽도록 되어 있음, 명령 외 stdout 0 바이트 |
+| 줄 단위 왕복 | 입력을 닫기 전에 3회 모두 응답 (`STREAMING=PASS`) |
+| 워커 | `ORCHESTRA_WORKER_*` 0개, `/opt/orchestra/venv` 없음(미설치라 정상) |
+
+점검 스크립트는 `ssh-config` 그대로 접속한다. 런처의 더 좁은 옵션(`none` 인증만 허용)과 설정 파서는 실설치에서 아직 실행하지 않았다.
+
 **지속형 transport 를 켜기 전에 남은 것**
-- 위 점검 통과.
-- 워커가 설치된 샌드박스 이미지(**재생성은 사용자 승인 후**). `Dockerfile.worker`가 OpenShell 이미지 요건을 채우는지, 샌드박스 사용자(실측 uid 998 `sandbox`)가 `/sandbox/state`에 쓸 수 있는지(현재 uid 10001 소유) 미확인.
+- 워커가 설치된 샌드박스 이미지(**재생성은 사용자 승인 후**). `Dockerfile.worker`가 OpenShell 이미지 요건을 채우는지, 샌드박스 사용자(실측 uid 998 `sandbox`)가 `/sandbox/state`에 쓸 수 있는지(현재 uid 10001 소유) 미확인. `/etc/profile.d` 값이 세션에 들어오는지도 새 이미지에서 확인한다.
 - capability 키를 샌드박스에 넣는 경로(`ORCHESTRA_WORKER_CAPABILITY_KEY_FILE`)가 정해지지 않았다. 없으면 워커는 시작하지 않는다.
 - `-m nemoclaw` 실연동 테스트: `ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=<sandbox> pytest -m nemoclaw tests/test_nemoclaw_persistent.py`
 - 이후 호스트 설정: `NEMOCLAW_TRANSPORT=ssh_stream`, `NEMOCLAW_EXEC_VERIFIED=1`.

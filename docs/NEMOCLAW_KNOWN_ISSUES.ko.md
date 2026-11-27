@@ -136,7 +136,7 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # 멈춘 CLI 프로세스 종�
 | 정책 교체 위험 | `policy set` 명령 없음. 변경은 승인 후 `policy add --from-file … --yes` 한 번만 | `cli.py`, `orchestra/security/policy_change.py` |
 | 텔레메트리 | 하위 프로세스 환경에 `NEMOCLAW_DISABLE_TELEMETRY=1` | `cli.py` `_child_env` |
 | 운영 진단 | 실측 점검, 멈춤 진단, 잠금 진단·정리 | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
-| 호출마다 `exec` | 선택형 지속 워커(`NEMOCLAW_TRANSPORT=ssh_stream`): OpenShell SSH 로 워커를 한 번 띄워 줄 단위 JSON 을 주고받음. 실패하면 세션을 종료하고 **재전송하지 않음** **[소스, 실설치 미확인]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1](NEMOCLAW_REALITY.md) |
+| 호출마다 `exec` | 선택형 지속 워커(`NEMOCLAW_TRANSPORT=ssh_stream`): OpenShell SSH 로 워커를 한 번 띄워 줄 단위 JSON 을 주고받음. 실패하면 세션을 종료하고 **재전송하지 않음** **[소스; SSH 왕복은 실측, 워커 실연동 미확인]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1](NEMOCLAW_REALITY.md) |
 | 회귀 방지 | 실측 출력 fixture 기반 테스트 | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
 `nemoclaw <sb> exec`는 원격 명령이 끝날 때까지 2절의 두 잠금 안에서 돌고 **[소스]**, 파이프 입력을 끝까지 읽은 뒤에야 명령을 시작한다(OpenShell 0.0.116) **[소스]**. 그래서 상시 워커에는 쓸 수 없다.
