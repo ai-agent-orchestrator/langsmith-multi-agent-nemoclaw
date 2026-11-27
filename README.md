@@ -37,9 +37,10 @@ network rule. No inference route was configured, so requests reached no model. *
 sandbox's OpenShell workspace, sandbox code can call that model**; run the check again after any such change.
 
 Not covered: CPU and memory limits, isolation between sandboxes, leaks through DNS. The result describes that install
-and policy, not every NemoClaw version. The worker sandbox lives on branch
-[`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli);
-the probe script is not published yet.
+and policy, not every NemoClaw version. Run it with
+[`scripts/nemoclaw_isolation_check.py`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/blob/21-nemoclaw-cli/scripts/nemoclaw_isolation_check.py);
+the script and the worker sandbox are on branch
+[`21-nemoclaw-cli`](https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw/tree/21-nemoclaw-cli).
 
 ## 1. What is implemented
 
