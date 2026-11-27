@@ -12,7 +12,7 @@
 | 실측 완료 | CLI 문법, `openshell policy get --base` 출력 형식, `exec`(약 1초, `uid=998(sandbox)`, Python 3.13.5), 우리 프리셋 2개 dry-run 통과 → `docs/NEMOCLAW_REALITY.md` §3 |
 | 해결한 장애 | 이전 WSL 부팅이 남긴 샌드박스 잠금 때문에 nemoclaw 샌드박스 명령이 전부 멈춤 → `scripts/nemoclaw_lock_doctor.sh --clean`으로 해결(45초 이상 → 1.15초) |
 | 남은 환경 문제 | 샌드박스 추론 HTTP 502(Ollama 인증 프록시 미기동). 개발엔 영향 없음(ScriptedChatModel). 실제 대화가 필요하면 사용자가 `nemoclaw my-assistant connect` |
-| 테스트 | **419 통과 / 실패 0** (2개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
+| 테스트 | **446 통과 / 실패 0** (2개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
 | 정적 검사 | `ruff` 통과, `mypy orchestra` 오류 0 |
 
 ## 1단계 — 복원 마무리: 실패 테스트 22개 + import 오류 1개 (완료)
@@ -61,7 +61,8 @@ python scripts/sync_third_party.py --check
 > - 구현: `orchestra/sandbox/nemoclaw/persistent.py`, `ssh_launcher.py`, 워커 `--serve`. 기본값은 기존 1회 실행이며 `NEMOCLAW_TRANSPORT=ssh_stream`으로 켠다. 1회 실행 명령에는 `--stdin`을 추가했다.
 > - 완료 조건: `tests/test_nemoclaw_persistent.py`(실프로세스 오프라인 왕복 + `-m nemoclaw` 실연동 1개, 기본 skip).
 > - 실설치 SSH 점검: 통과(2026-11-27, `scripts/nemoclaw_ssh_stream_check.sh`, REALITY §3.1).
-> - 남음: (사용자 승인 후) 이미지 재생성, capability 키 전달 경로 결정 → 실연동 테스트.
+> - 설치 준비 완료(실설치 미실행): `nemoclaw onboard --from`은 워커 이미지에 쓸 수 없어(REALITY §3.2) `scripts/nemoclaw_worker_sandbox.py`가 `openshell sandbox create --from`을 쓴다. `docs/DESIGN.md`의 `onboard --from` 서술과 다르다. 키는 샌드박스별 파생 키.
+> - 남음: (사용자 승인 후) 샌드박스 생성 → 실연동 테스트. `orchestra-code`에서 실행할 샌드박스 툴 정의.
 > - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).

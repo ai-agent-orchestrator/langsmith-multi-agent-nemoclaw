@@ -75,11 +75,37 @@ bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고
 
 점검 스크립트는 `ssh-config` 그대로 접속한다. 런처의 더 좁은 옵션(`none` 인증만 허용)과 설정 파서는 실설치에서 아직 실행하지 않았다.
 
-**지속형 transport 를 켜기 전에 남은 것**
-- 워커가 설치된 샌드박스 이미지(**재생성은 사용자 승인 후**). `Dockerfile.worker`가 OpenShell 이미지 요건을 채우는지, 샌드박스 사용자(실측 uid 998 `sandbox`)가 `/sandbox/state`에 쓸 수 있는지(현재 uid 10001 소유) 미확인. `/etc/profile.d` 값이 세션에 들어오는지도 새 이미지에서 확인한다.
-- capability 키를 샌드박스에 넣는 경로(`ORCHESTRA_WORKER_CAPABILITY_KEY_FILE`)가 정해지지 않았다. 없으면 워커는 시작하지 않는다.
-- `-m nemoclaw` 실연동 테스트: `ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=<sandbox> pytest -m nemoclaw tests/test_nemoclaw_persistent.py`
-- 이후 호스트 설정: `NEMOCLAW_TRANSPORT=ssh_stream`, `NEMOCLAW_EXEC_VERIFIED=1`.
+### 3.2 워커 샌드박스 설치 (N2) — 소스 확인 + 컨테이너 대역 검증, **실설치 미실행**
+
+| # | 항목 | 확인 내용 | 근거 |
+|---|---|---|---|
+| 17 | ❌ `nemoclaw onboard --from nemoclaw/Dockerfile.worker` | `--from` 이미지는 NemoClaw 관리 런타임까지 포함한 완전한 이미지여야 한다. 워커 이미지로는 기동 실패(exit 127). → `openshell sandbox create --from`으로 만든다 | NemoClaw `docs/reference/troubleshooting.mdx` |
+| 18 | 빌드 방식 | 컨텍스트는 Dockerfile 이 있는 디렉터리, build arg 전달 없음 → 스크립트가 git 추적 파일만 임시 디렉터리에 모으고 베이스 digest 를 채운다 | OpenShell `run.rs` `resolve_from` |
+| 19 | 이미지 요건 | root 가 아닌 `USER`, 쓰기 가능한 `/sandbox`, `iproute2`. `CMD`는 쓰이지 않고, 주 프로세스가 끝나면 샌드박스가 오류 상태가 된다(`sleep infinity`) | `examples/bring-your-own-container`, `docs/sandboxes/manage-sandboxes.mdx` |
+| 20 | 파일 접근 | 정책에 없는 경로는 접근 불가 → `nemoclaw/policy-worker.yaml`: 네트워크 없음, `/opt/orchestra` 읽기 전용, `/sandbox` 쓰기, Landlock `hard_requirement` | `docs/reference/policy-schema.mdx` |
+| 21 | ❌ 네트워크 규칙이 없는 정책 | `policy get` 출력에서 빈 `network_policies`는 **생략**된다. 이전 파서는 이를 거부해 모든 실행이 `policy_unrecognized`가 됐을 것 → OpenShell 헤더가 있는 정책 문서일 때만 "규칙 없음"으로 읽는다 | `crates/openshell-policy/src/lib.rs` `PolicyFile` |
+| 22 | 인증 키 | 호스트의 마스터 키는 밖으로 나가지 않는다. 샌드박스에는 `HMAC(마스터, 샌드박스 이름)` 파생 키만 SSH 표준입력으로 넣는다(`/sandbox/state/capability.key`, 0400) | `orchestra/security/capability.py` |
+
+검증한 범위: 실제 Docker(classic builder)로 이미지 빌드 → 환경을 비운 SSH 세션을 흉내 낸 컨테이너에서 설치 스크립트의 생성·키 설치·워커 점검, `-m nemoclaw` 테스트 통과. 베이스는 레지스트리 접근이 막혀 **Ubuntu 24.04 + Python 3.12 로컬 이미지**를 썼다(`python:3.11-slim` 아님).
+**확인하지 못한 것:** 실제 OpenShell 의 이미지 수용, 정책·Landlock 적용, 게이트웨이를 통한 SSH, NemoClaw 가 관리하지 않는 샌드박스가 함께 있을 때의 동작.
+
+설치 절차 (WSL2, **샌드박스 생성은 사용자 승인 후**):
+```bash
+git clone -b 21-nemoclaw-cli https://github.com/ai-agent-orchestrator/langsmith-multi-agent-nemoclaw ~/orchestra && cd ~/orchestra
+python3 -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]'
+docker pull python:3.11-slim
+BASE="$(docker image inspect python:3.11-slim --format '{{index .RepoDigests 0}}')"; echo "$BASE"   # 검토 후 사용
+python scripts/nemoclaw_worker_sandbox.py --python-base "$BASE"          # 미리보기, 생성 안 함
+python scripts/nemoclaw_worker_sandbox.py --python-base "$BASE" --yes    # 생성 + 키 설치 + 점검
+ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code pytest -m nemoclaw tests/test_nemoclaw_persistent.py
+openshell sandbox delete orchestra-code                                  # 되돌리기
+```
+
+**남은 제약**
+- `orchestra-code`에서 실행할 툴이 아직 없다. `claude_dev`에는 샌드박스 툴이 없어 러너는 `sandbox_not_declared`를 돌려주며, 지금 확인할 수 있는 것은 워커 왕복(점검 요청)뿐이다.
+- 샌드박스 사용자로 실행되는 코드는 그 샌드박스의 파생 키를 읽을 수 있다. 다른 샌드박스의 요청은 서명할 수 없다.
+- 워커 이미지의 샌드박스 이름·조직 파일은 `orchestra-code`/`claude_dev` 고정이다.
+- 호스트에서 지속형 transport 를 쓰려면 `NEMOCLAW_TRANSPORT=ssh_stream`, `NEMOCLAW_EXEC_VERIFIED=1`, `ORCHESTRA_CAPABILITY_KEY_FILE=<마스터 키 파일>`.
 
 ### 점검 절차
 ```bash

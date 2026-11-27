@@ -137,6 +137,8 @@ bash -l scripts/nemoclaw_lock_doctor.sh --clean  # stop hung CLI processes + ren
 | Telemetry | `NEMOCLAW_DISABLE_TELEMETRY=1` in the child environment | `cli.py` `_child_env` |
 | Operational diagnosis | Install probe, hang diagnosis, lock diagnosis and cleanup | `scripts/nemoclaw_probe.sh`, `nemoclaw_hang_diag.sh`, `nemoclaw_lock_doctor.sh` |
 | One `exec` per call | Optional persistent worker (`NEMOCLAW_TRANSPORT=ssh_stream`): start it once over OpenShell SSH and exchange one JSON line per request. On failure the session is killed and the request is **not resent** **[source; the SSH round trip is measured, the worker has not run on a real install]** | `persistent.py`, `ssh_launcher.py`, [REALITY §3.1](NEMOCLAW_REALITY.md) |
+| Custom images | `nemoclaw onboard --from` needs an image containing the NemoClaw runtime → the worker uses `openshell sandbox create --from` **[docs/source, not yet run on a real install]** | `scripts/nemoclaw_worker_sandbox.py`, [REALITY §3.2](NEMOCLAW_REALITY.md) |
+| Empty network policy | `policy get` omits an empty `network_policies` → read as "no rules" only for OpenShell output **[source]** | `orchestra/sandbox/nemoclaw/live.py` `parse_policy` |
 | Regression prevention | Tests built on real CLI output fixtures | `tests/fixtures/nemoclaw/`, `tests/test_nemoclaw_cli_hardening.py` |
 
 `nemoclaw <sb> exec` runs inside both locks from section 2 until the remote command ends **[source]**, and the command starts only after piped input has been read to the end (OpenShell 0.0.116) **[source]**, so it cannot host a long-lived worker.
