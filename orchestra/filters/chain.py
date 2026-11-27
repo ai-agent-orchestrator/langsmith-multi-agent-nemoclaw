@@ -6,8 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, cast
 
 from ..runtime import EventLog
+from ..security.control import SecurityControl
 from ..specs import FilterSpec
-from .base import Action, Filter, FilterContext, FilterDecision
+from .base import Action, Filter, FilterContext, FilterDecision, Stage
+
+# 새 작업이 시작되는 단계만 막는다. 이미 실행된 작업의 결과 필터(post_*)는 계속 돌아야 한다.
+_GUARDED_STAGES = frozenset({Stage.PRE_REQUEST, Stage.PRE_MODEL, Stage.PRE_TOOL})
 
 
 @dataclass
@@ -50,19 +54,42 @@ class FilterChain:
     - BLOCK: 즉시 단락
     - REQUIRE_APPROVAL: 나머지 필터를 끝까지 돌린 뒤 반영 (이후 BLOCK 될 요청을 사용자에게 묻지 않기 위해)
     - 필터가 예외를 던지면 fail-closed(BLOCK)
+    - security_control 이 있으면 전역 kill switch·팀 차단기를 필터보다 먼저 확인한다
     """
 
-    def __init__(self, entries: list[tuple[FilterSpec, Filter]], events: Optional[EventLog] = None):
+    def __init__(self, entries: list[tuple[FilterSpec, Filter]], events: Optional[EventLog] = None,
+                 security_control: Optional[SecurityControl] = None):
         self.entries = sorted(((s, f) for s, f in entries if s.enabled), key=lambda e: e[0].order)
         self.events = events
+        self.security_control = security_control
 
     def names(self) -> list[str]:
         return [s.name for s, _ in self.entries]
 
     def with_events(self, events: EventLog) -> "FilterChain":
-        return FilterChain(list(self.entries), events)
+        return FilterChain(list(self.entries), events, self.security_control)
 
     def run(self, ctx: FilterContext, *, dedupe: Optional[str] = None) -> ChainResult:
+        """단계에 해당하는 필터를 실행하고, 도구 결과를 팀 차단기에 반영한다."""
+        control = self.security_control
+        if control is not None and ctx.stage in _GUARDED_STAGES:
+            stop = control.guard(ctx.agent or "")
+            if stop is not None:
+                denied = FilterDecision.block(stop)
+                # dedupe 하지 않는다: 같은 툴이 전에 막힌 적이 있어도 이번 중단은 기록해야 한다.
+                self._emit(ctx, "security_control", denied, None)
+                return ChainResult(Action.BLOCK, ctx.payload, stop, blocked_by="security_control",
+                                   trail=[TrailEntry("security_control", Action.BLOCK, stop)])
+        result = self._run_filters(ctx, dedupe)
+        if control is not None and ctx.agent and ctx.stage in (Stage.PRE_TOOL, Stage.POST_TOOL):
+            # 승인 대기는 중립, pre_tool 통과만으로는 연속 차단 횟수를 지우지 않는다.
+            if result.action == Action.BLOCK:
+                control.record(ctx.agent, blocked=True)
+            elif ctx.stage == Stage.POST_TOOL and result.action == Action.ALLOW:
+                control.record(ctx.agent, blocked=False)
+        return result
+
+    def _run_filters(self, ctx: FilterContext, dedupe: Optional[str]) -> ChainResult:
         payload = ctx.payload
         res = ChainResult(Action.ALLOW, payload)
         approval: Optional[dict] = None

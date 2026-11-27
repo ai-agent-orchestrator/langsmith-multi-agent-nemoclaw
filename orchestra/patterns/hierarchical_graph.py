@@ -65,6 +65,18 @@ def _detach_to_supervisor(builder: Any, member: str, supervisor: str) -> None:
     builder.add_conditional_edges(member, route, {supervisor: supervisor, END: END})
 
 
+def _circuit_teams(declared: OrgSpec, normalized: OrgSpec) -> dict[str, str]:
+    """실행 이름(agent·자동 분할 팀) → 선언된 팀. 자동 분할이 팀 차단기를 쪼개지 않게 선언 기준으로 묶는다."""
+    by_member = {m: t.name for t in declared.teams.values() for m in t.members}
+    scopes = {declared.agents[m].name: team for m, team in by_member.items() if m in declared.agents}
+    for name, team in normalized.teams.items():
+        if name not in declared.teams:
+            owner = next((by_member[m] for m in team.members if m in by_member), None)
+            if owner is not None:
+                scopes[name] = owner
+    return scopes
+
+
 def build_hierarchical_app(
     org: OrgSpec | str | Path | dict,
     model_factory: ModelFactory | BaseChatModel,
@@ -99,10 +111,13 @@ def build_hierarchical_app(
 
     packs = build_packs(org.domains, services)
     res = resolve(org, packs)
-    org = assert_valid(normalize_fanout(res.org))
+    declared = res.org
+    org = assert_valid(normalize_fanout(declared))
     res.org = org
 
     chain = build_chain(res.filter_specs, res.filter_impls, rt.events)
+    rt.security_control.teams.update(_circuit_teams(declared, org))
+    chain.security_control = rt.security_control
     base = prompt_base or Path(__file__).resolve().parent.parent.parent
 
     id_to_name = {aid: a.name for aid, a in org.agents.items()}

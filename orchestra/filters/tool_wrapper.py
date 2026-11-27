@@ -175,7 +175,7 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
             req = ExecRequest(
                 sandbox=spec.sandbox_name or "", tool=tool.name, args=args, timeout_s=spec.timeout_s,
                 egress=[e.hostport for e in spec.egress], idempotency_key=args.get("idempotency_key") or None,
-                local_fn=lambda **kw: tool.invoke(kw),
+                local_fn=lambda **kw: tool.invoke(kw), agent=agent,
             )
             res = rt.sandbox.exec(req)
             rt.events.add("sandbox", tool=tool.name, sandbox=req.sandbox, ok=res.ok, error=res.error,

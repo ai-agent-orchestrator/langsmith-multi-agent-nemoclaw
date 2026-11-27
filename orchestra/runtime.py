@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 from .hitl import ApprovalRecord
 from .ledger import LedgerStore, MemoryLedgerStore, create_ledger_store, LedgerConfigurationError
+from .security.control import SecurityControl
 
 
 @dataclass
@@ -147,6 +148,8 @@ class Runtime:
     graph: Any = field(default=None, repr=False)
     quarantined_threads: set[str] = field(default_factory=set, repr=False)
     ledger_store: LedgerStore | None = field(default=None, repr=False)
+    # 운영자는 security_control.reset(team) 으로만 열린 팀 차단기를 닫는다.
+    security_control: SecurityControl = field(default_factory=SecurityControl, repr=False)
 
     def __post_init__(self) -> None:
         """Share one explicitly selected store across runtime services; default remains memory."""
