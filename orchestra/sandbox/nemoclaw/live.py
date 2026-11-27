@@ -15,6 +15,8 @@ _CUSTOM = re.compile(r"nemoclaw_custom__([a-z][a-z0-9-]{0,62})__(.+)")
 # `openshell policy get --base <sb>` (0.0.116 실측): "Key:   value" 헤더 몇 줄, 단독 `---`, 그 뒤 정책 YAML.
 _META_LINE = re.compile(r"([A-Z][A-Za-z ]{0,30}):[ \t]+(\S.{0,200})")
 _META_KEYS = frozenset({"Version", "Hash", "Status", "Source", "Config rev"})
+_POLICY_KEYS = frozenset({"version", "filesystem_policy", "landlock", "process", "network_policies",
+                          "network_middlewares"})
 
 
 def split_policy_output(output: str) -> tuple[dict[str, str], str]:
@@ -42,11 +44,17 @@ def parse_policy(output: str) -> dict[str, Any]:
     """Require plain YAML/JSON policy (optionally after the OpenShell banner); other shapes fail closed."""
     if len(output.encode()) > 1_048_576:
         raise ValueError("policy output too large")
-    _, output = split_policy_output(output)
+    meta, output = split_policy_output(output)
     try:
         if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(output)):
             raise ValueError
         data = yaml.safe_load(output)
+        # OpenShell omits an empty network_policies map. Read that as "no network rules" only for
+        # a document that is recognizably its own output.
+        if (meta and isinstance(data, dict) and "network_policies" not in data and set(data) <= _POLICY_KEYS
+                and type(data.get("version")) is int and data["version"] == 1
+                and isinstance(data.get("filesystem_policy"), dict)):
+            data["network_policies"] = {}
         if not isinstance(data, dict) or not isinstance(data.get("network_policies"), dict):
             raise ValueError
         for key, value in data["network_policies"].items():
