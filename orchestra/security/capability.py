@@ -16,6 +16,13 @@ def _digest(request: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(selected, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def derive_sandbox_key(master: bytes, sandbox: str) -> bytes:
+    """Return the key one sandbox may hold, so a copy leaked from it cannot sign for another sandbox."""
+    if len(master) < 32:
+        raise ValueError("invalid_capability_configuration")
+    return hmac.new(master, b"orchestra-sandbox-key:v1\0" + sandbox.encode(), hashlib.sha256).hexdigest().encode()
+
+
 class CapabilityAuthority:
     """A bootstrap key must be provisioned by operators and rotated outside agent control."""
 
@@ -25,6 +32,9 @@ class CapabilityAuthority:
             raise ValueError("invalid_capability_configuration")
         self._key, self.grants, self.clock, self.ttl_s = key, grants, clock, ttl_s
 
+    def _key_for(self, request: dict[str, Any]) -> bytes:
+        return self._key
+
     def issue(self, request: dict[str, Any]) -> str:
         """Attenuate a caller's grant to one exact tool invocation and a short expiry."""
         agent = request.get("agent")
@@ -33,7 +43,7 @@ class CapabilityAuthority:
         claims = json.dumps({"digest": _digest(request), "expires": self.clock() + self.ttl_s,
                              "nonce": uuid4().hex}, sort_keys=True, separators=(",", ":")).encode()
         encoded = base64.urlsafe_b64encode(claims).decode()
-        signature = hmac.new(self._key, encoded.encode(), hashlib.sha256).hexdigest()
+        signature = hmac.new(self._key_for(request), encoded.encode(), hashlib.sha256).hexdigest()
         return encoded + "." + signature
 
     def verify(self, request: dict[str, Any], token: str | None) -> bool:
@@ -42,7 +52,7 @@ class CapabilityAuthority:
             if not token or len(token) > 8192:
                 return False
             encoded, signature = token.split(".")
-            expected = hmac.new(self._key, encoded.encode(), hashlib.sha256).hexdigest()
+            expected = hmac.new(self._key_for(request), encoded.encode(), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(signature, expected):
                 return False
             claims = json.loads(base64.b64decode(encoded, altchars=b"-_", validate=True))
@@ -53,3 +63,13 @@ class CapabilityAuthority:
                     and isinstance(agent, str) and request.get("tool") in self.grants.get(agent, set()))
         except (ValueError, KeyError, TypeError):
             return False
+
+
+class SandboxKeyedAuthority(CapabilityAuthority):
+    """Host-side authority: sign with the key derived for the request's sandbox; the master key stays here."""
+
+    def _key_for(self, request: dict[str, Any]) -> bytes:
+        sandbox = request.get("sandbox")
+        if not isinstance(sandbox, str) or not sandbox:
+            raise ValueError("capability_sandbox_missing")
+        return derive_sandbox_key(self._key, sandbox)

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit
 
-from ...security.capability import CapabilityAuthority
+from ...security.capability import SandboxKeyedAuthority
 from ...specs import ToolSpec
 from . import policy
 from .cli import NemoClawCli
@@ -49,7 +49,8 @@ def make_runner(specs: Iterable[ToolSpec], grants: dict[str, set[str]], *, secur
     authority = None
     key_file = os.environ.get("ORCHESTRA_CAPABILITY_KEY_FILE")
     if key_file:
-        authority = CapabilityAuthority(Path(key_file).read_bytes(), grants)
+        # The file holds the host's master key; each sandbox worker is given only its derived key.
+        authority = SandboxKeyedAuthority(Path(key_file).read_bytes(), grants)
     transport: Transport | None = None
     if os.environ.get("NEMOCLAW_EXEC_VERIFIED") == "1" and authority is not None:
         if kind == "ssh_stream":
