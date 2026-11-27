@@ -12,7 +12,7 @@
 | 실측 완료 | CLI 문법, `openshell policy get --base` 출력 형식, `exec`(약 1초, `uid=998(sandbox)`, Python 3.13.5), 우리 프리셋 2개 dry-run 통과 → `docs/NEMOCLAW_REALITY.md` §3 |
 | 해결한 장애 | 이전 WSL 부팅이 남긴 샌드박스 잠금 때문에 nemoclaw 샌드박스 명령이 전부 멈춤 → `scripts/nemoclaw_lock_doctor.sh --clean`으로 해결(45초 이상 → 1.15초) |
 | 남은 환경 문제 | 샌드박스 추론 HTTP 502(Ollama 인증 프록시 미기동). 개발엔 영향 없음(ScriptedChatModel). 실제 대화가 필요하면 사용자가 `nemoclaw my-assistant connect` |
-| 테스트 | **446 통과 / 실패 0** (2개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
+| 테스트 | **513 통과 / 실패 0** (2개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
 | 정적 검사 | `ruff` 통과, `mypy orchestra` 오류 0 |
 
 ## 1단계 — 복원 마무리: 실패 테스트 22개 + import 오류 1개 (완료)
@@ -70,10 +70,30 @@ python scripts/sync_third_party.py --check
 - 필요: 샌드박스 이미지에 워커 설치(`nemoclaw/Dockerfile.worker` 참고, `nemoclaw onboard --from` 또는 `upload`). **이미지 재생성은 사용자 승인 후.**
 - 완료 조건: fake 프로세스로 왕복 테스트(오프라인) + `-m nemoclaw` 마커 실연동 테스트 1개(기본 skip).
 
-## 3단계 — 샌드박스 안 2차 필터 (N3)
+## 3단계 — 샌드박스 안 2차 필터 (N3) (워커에 구현돼 있음, 오프라인 확인)
+
+> **확인 완료 (2026-11-27).** `Worker._execute` 가 pre_tool·post_tool 필터와 지시문 검사를 다시 적용하고 COMMIT 을 거부한다. 근거 테스트 통과. 코드 변경 없음. 실설치 워커에서의 확인은 2단계의 남은 항목에 포함된다.
+
 워커가 받은 요청에 pre_tool/post_tool 필터를 다시 적용한다. 호스트 체인을 우회해도 막힌다. 근거 테스트: `test_nemoclaw_runtime.py::test_worker_rechecks_pre_post_and_commit_without_host_chain`.
 
-## 4단계 — 결정 계층 병합
+## 4단계 — 결정 계층 병합 (완료, 일부는 연결 전)
+
+> **구현 완료 (2026-11-27).**
+> - 결정 계약 `orchestra/security/decision.py`: `allow`/`ask`/`deny` + `ReasonCode`. `EventLog` 가 `blocked` 와 실패한 `sandbox` 이벤트에 `reason_code` 를 붙이고, 감사 로그·trace export·서비스의 차단 응답이 같은 값을 쓴다. 응답 필터(`pre_response`) 차단도 이제 `blocked` 이벤트로 남는다.
+> - 툴이 돌려주는 오류 dict 의 모양은 바꾸지 않았다. `from_tool_output` 으로 해석한다.
+> - egress 격리 `orchestra/security/egress_isolation.py`, 도입 게이트 `orchestra/security/intake.py` + `scripts/intake_gate.py`.
+> - 테스트: `tests/test_security_decision.py`, `test_egress_isolation.py`, `test_intake_gate.py`.
+>
+> **원본 브랜치와 다른 점:** 스캐너 계약은 이 저장소의 `scanner.py`(바이트에 묶인 `ScanReport`)를 쓴다(`needs_validation` 없음, 보고서가 없으면 불합격, 차단 기준은 high 보다 약하게 할 수 없음). 도입 게이트는 해시한 바이트를 그대로 스캔하고, 잠금에 없는 플러그인·소스 디렉터리도 불합격 처리한다. 격리 기록은 `egress_isolation` 이벤트다. 결정 서비스의 모순 응답(`deny` + `ALLOWED`)도 거부한다.
+>
+> **아직 연결하지 않은 것:**
+> - `IsolatingSandboxRunner` 는 어떤 실행 경로에도 기본으로 끼우지 않았다. 또 지금 NemoClaw 워커는 `egress_denied` 를 채우지 않으므로 **실설치에서는 격리가 발동하지 않는다**(Fake 러너에서만 동작). 격리 상태는 프로세스 메모리다. 영속 장부를 쓰는 결제는 Fake 러너를 감싸면 차단된다(fail closed).
+> - `FailClosedClient`/`ChainDecisionClient` 는 계약만 있다. 외부 결정 서비스가 없다.
+> - `reason_code` 는 LangSmith metadata 로 보내지 않는다(`Decision.trace_metadata()` 는 준비됨).
+> - 도입 게이트는 카탈로그 로딩과 CI 에 연결하지 않았다. 기존 `ingestion.admit_plugin` 과 검사 범위가 겹친다. 깨끗한 체크아웃에서 `python scripts/intake_gate.py --static` 으로 현재 `third_party/` 가 통과한다.
+>
+> 아래는 당시 명세 기록이다.
+
 `nemoclaw/21-security-decision-layer`의 `decision.py`(allow/ask/deny + ReasonCode + FailClosedClient), `egress_isolation.py`, `intake.py`를 이 브랜치로 가져와 흩어진 차단 경로를 하나의 계약으로 묶는다.
 
 ## 5단계 — 정책 정리 (사용자 승인 필요)
