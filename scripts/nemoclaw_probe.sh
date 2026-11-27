@@ -13,6 +13,12 @@
 # 출력의 토큰·키·이메일·긴 16진수/base64 문자열은 저장 전에 마스킹된다. 그래도 공유 전에 한 번 훑어볼 것.
 set -u
 
+# 동시에 두 번 돌면 NemoClaw 호스트 잠금(~/.nemoclaw-portable-host.lock)을 서로 기다리다 전부 실패한다.
+exec 9>"${TMPDIR:-/tmp}/nemoclaw_probe.lock"
+if ! flock -n 9; then
+  echo "!! 다른 nemoclaw_probe 가 이미 실행 중입니다. 끝난 뒤 다시 실행하세요."; exit 3
+fi
+
 TS="$(date +%Y%m%d-%H%M%S)"
 if [ -z "${OUT:-}" ]; then
   WINHOME=""
@@ -47,6 +53,12 @@ run() {
   printf '\n[exit %s]\n' "$rc" >> "$f"
   printf '%s\t%s\t%s\t%s\n' "$id" "$rc" "$(wc -c < "$f")" "$*" >> "$SUMMARY"
   printf '%-34s rc=%s\n' "$id" "$rc"
+  if grep -q 'Failed to acquire lock' "$f"; then
+    echo "!! NemoClaw 호스트 잠금을 다른 nemoclaw 프로세스가 쥐고 있습니다. 여기서 멈춥니다."
+    echo "   확인: ps -eo pid,etimes,args | grep -E 'nemoclaw|openshell' | grep -v grep"
+    printf 'aborted\tlock_contention\n' >> "$SUMMARY"
+    echo "== 중단: $OUT"; exit 4
+  fi
   return 0
 }
 
