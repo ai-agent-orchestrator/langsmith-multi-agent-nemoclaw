@@ -36,6 +36,7 @@ TIMEOUT_S="${TIMEOUT_S:-45}"
 
 mask() {
   sed -E \
+    -e 's/([Bb]earer )[A-Za-z0-9._~+/-]{8,}=*/\1[MASKED]/g' \
     -e 's/(sk-|lsv2_|nvapi-|ghp_|gho_|github_pat_|xox[bpas]-)[A-Za-z0-9_-]{8,}/\1[MASKED]/g' \
     -e 's/([Bb]earer|[Tt]oken|[Aa]pi[_-]?[Kk]ey|[Ss]ecret|[Pp]assword)([" :=]+)[^" ,}]{6,}/\1\2[MASKED]/g' \
     -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g' \
