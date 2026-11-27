@@ -77,7 +77,11 @@ def _single_flight(deadline: float):
 
 def _run_bounded(argv: list[str], *, timeout: float, input_text: str | None,
                  env: dict[str, str] | None = None, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    """Drain both pipes concurrently, killing the process when either exceeds its cap."""
+    """Drain both pipes concurrently, killing the process when either exceeds its cap.
+
+    Raw stderr never leaves this function: the returned stderr is empty, or only the fixed
+    host-lock marker when the child reported it.
+    """
     process = subprocess.Popen(argv, shell=False, stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd,
                                start_new_session=True)
@@ -134,8 +138,8 @@ def _run_bounded(argv: list[str], *, timeout: float, input_text: str | None,
         raise ValueError("cli_output_too_large")
     if any(thread.is_alive() for thread in threads):
         raise ValueError("cli_pipe_incomplete")
-    return subprocess.CompletedProcess(argv, process.returncode, output.decode("utf-8", errors="replace"),
-                                       errors.decode("utf-8", errors="replace"))
+    marker = _HOST_LOCK_MARKER if _HOST_LOCK_MARKER.encode() in errors else ""
+    return subprocess.CompletedProcess(argv, process.returncode, output.decode("utf-8", errors="replace"), marker)
 
 
 @dataclass(frozen=True)
