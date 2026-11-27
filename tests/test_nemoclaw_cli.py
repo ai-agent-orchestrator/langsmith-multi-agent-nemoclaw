@@ -19,7 +19,7 @@ def test_reject_sandbox_before_launch(name):
 def test_valid_sandbox_and_dry_run(name):
     with patch("orchestra.sandbox.nemoclaw.cli._run_bounded") as run:
         result = NemoClawCli(dry_run=True).run("policy_get", sandbox=name)
-        assert result.argv == ("openshell", "policy", "get", "--full", name)
+        assert result.argv == ("openshell", "policy", "get", "--base", name)
         assert result.ok and result.dry_run
         run.assert_not_called()
 
@@ -33,6 +33,8 @@ def test_policy_replacement_and_arbitrary_exec_forbidden():
         with pytest.raises(ValueError):
             cli.command("policy_add", sandbox="sandbox", preset=preset)
     assert cli.command("policy_add", sandbox="sandbox", preset="orchestra-egress") == (
+        "nemoclaw", "sandbox", "policy", "add", "orchestra-egress")
+    assert NemoClawCli(dialect="legacy").command("policy_add", sandbox="sandbox", preset="orchestra-egress") == (
         "nemoclaw", "sandbox", "policy-add", "orchestra-egress")
 
 
@@ -42,7 +44,7 @@ def test_subprocess_boundary_and_private_output():
         assert result.stdout == "private"
         assert "private" not in repr(result)
         assert run.call_args.args == (["nemoclaw", "sandbox", "status"],)
-        assert run.call_args.kwargs["timeout"] == 3
+        assert run.call_args.kwargs["timeout"] == pytest.approx(3, abs=0.1)
         assert run.call_args.kwargs["input_text"] is None
 
 

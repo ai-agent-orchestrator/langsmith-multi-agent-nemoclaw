@@ -65,7 +65,7 @@ def test_custom_file_command_is_rooted_and_additive(tmp_path):
     path.write_text("reviewed file")
     cli = NemoClawCli(preset_root=tmp_path, dialect="modern", dry_run=True)
     result = cli.run("policy_add_file", sandbox="test-box", preset=str(path))
-    assert result.argv == ("nemoclaw", "test-box", "policy", "add", "--from-file", str(path))
+    assert result.argv == ("nemoclaw", "test-box", "policy", "add", "--from-file", str(path), "--yes")
     assert result.dry_run
 
 

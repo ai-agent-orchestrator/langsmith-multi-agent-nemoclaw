@@ -12,12 +12,37 @@ import yaml
 from .policy import LANGSMITH_HOST
 
 _CUSTOM = re.compile(r"nemoclaw_custom__([a-z][a-z0-9-]{0,62})__(.+)")
+# `openshell policy get --base <sb>` (0.0.116 실측): "Key:   value" 헤더 몇 줄, 단독 `---`, 그 뒤 정책 YAML.
+_META_LINE = re.compile(r"([A-Z][A-Za-z ]{0,30}):[ \t]+(\S.{0,200})")
+_META_KEYS = frozenset({"Version", "Hash", "Status", "Source", "Config rev"})
+
+
+def split_policy_output(output: str) -> tuple[dict[str, str], str]:
+    """Separate the OpenShell metadata banner from the policy body; unknown banners fail closed."""
+    lines = output.splitlines()
+    if "---" not in (line.strip() for line in lines):
+        return {}, output
+    meta: dict[str, str] = {}
+    for index, line in enumerate(lines):
+        if line.strip() == "---":
+            body = "\n".join(lines[index + 1:])
+            if not meta or "---" in (rest.strip() for rest in lines[index + 1:]):
+                raise ValueError("unrecognized live policy")
+            return meta, body
+        if not line.strip():
+            continue
+        match = _META_LINE.fullmatch(line.rstrip())
+        if match is None or match[1] not in _META_KEYS or match[1] in meta:
+            raise ValueError("unrecognized live policy")
+        meta[match[1]] = match[2].strip()
+    raise ValueError("unrecognized live policy")
 
 
 def parse_policy(output: str) -> dict[str, Any]:
-    """Require plain YAML/JSON policy; unknown banners and shapes fail closed."""
+    """Require plain YAML/JSON policy (optionally after the OpenShell banner); other shapes fail closed."""
     if len(output.encode()) > 1_048_576:
         raise ValueError("policy output too large")
+    _, output = split_policy_output(output)
     try:
         if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(output)):
             raise ValueError
