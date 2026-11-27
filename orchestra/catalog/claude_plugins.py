@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..org import REPO_ROOT
+from ..security.intake import refused_plugins
 from .assets import read_asset
 from .frontmatter import Prompt, parse_markdown
 from .skills import Skill
@@ -55,7 +56,11 @@ class PluginCatalog:
 
     @classmethod
     def load(cls, root: str | Path | None = None) -> PluginCatalog:
-        """Scan a selected root or CLAUDE_PLUGINS_DIR; never import or run plugin code."""
+        """Scan a selected root or CLAUDE_PLUGINS_DIR; never import or run plugin code.
+
+        A root that has a LOCK.json two levels up, or that is vendored under third_party, only loads
+        the plugins that pass the intake gate; each refusal is listed in `errors`.
+        """
         selected = Path(root if root is not None else os.environ.get(
             "CLAUDE_PLUGINS_DIR", str(REPO_ROOT / "third_party/claude_plugins/plugins"),
         )).resolve()
@@ -63,11 +68,18 @@ class PluginCatalog:
         if not selected.is_dir():
             catalog.errors.append("plugin root is unavailable")
             return catalog
-        for directory in sorted(selected.iterdir()):
-            if not directory.is_dir() or directory.name.startswith("."):
-                continue
+        directories = [path for path in sorted(selected.iterdir())
+                       if path.is_dir() and not path.name.startswith(".")]
+        lock = selected.parent.parent / "LOCK.json"
+        refused: dict[str, str] = {}
+        if lock.is_file() or selected.is_relative_to(REPO_ROOT / "third_party"):
+            refused = refused_plugins(selected, [p.name for p in directories if _NAME.fullmatch(p.name)], lock)
+        for directory in directories:
             if not _NAME.fullmatch(directory.name):
                 catalog.errors.append("invalid plugin directory name")
+                continue
+            if directory.name in refused:
+                catalog.errors.append(f"{directory.name}: intake refused {refused[directory.name]}")
                 continue
             try:
                 catalog._scan_plugin(directory)

@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .decision import Decision, ReasonCode, allow, deny
-from .scanner import Finding, SecurityScanner, Severity, files_digest
+from .scanner import Finding, SecurityScanner, Severity, StaticScanner, files_digest
 
 MAX_ASSET_BYTES = 2_000_000
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -69,12 +69,13 @@ def _entries(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_symlink() or not path.is_dir())
 
 
-def read_snapshot(manifest: IntakeManifest, root: Path,
-                  exclude: tuple[str, ...] = ()) -> tuple[list[str], dict[str, bytes]]:
+def read_snapshot(manifest: IntakeManifest, root: Path, exclude: tuple[str, ...] = (), *,
+                  ignore_bytecode: bool = False) -> tuple[list[str], dict[str, bytes]]:
     """파일을 한 번만 읽어 대조하고, 대조한 바이트를 돌려준다 (스캔과 해시가 어긋나지 않게).
 
     심볼릭 링크·경로 탈출은 불일치다. `exclude` 는 목록 외 파일 검사에서 뺄 최상위 디렉터리이며
-    다른 매니페스트가 맡는 곳이다 (`check_coverage` 가 빈틈을 확인한다).
+    다른 매니페스트가 맡는 곳이다 (`check_coverage` 가 빈틈을 확인한다). `ignore_bytecode` 는 파일을
+    데이터로만 읽고 실행하지 않는 호출자만 켠다.
     """
     if root.is_symlink():
         return ["unit root is a symlink"], {}
@@ -108,6 +109,8 @@ def read_snapshot(manifest: IntakeManifest, root: Path,
             name = path.relative_to(resolved).as_posix()
             if "/" in name and name.split("/", 1)[0] in exclude:
                 continue
+            if ignore_bytecode and "__pycache__" in PurePosixPath(name).parts[:-1] and not path.is_symlink():
+                continue
             if name not in manifest.files:
                 problems.append(f"{name}: not in manifest")
     return problems, files
@@ -122,7 +125,8 @@ class IntakeGate:
         self.scanner = scanner
         self.fail_on = fail_on
 
-    def evaluate(self, manifest: IntakeManifest, root: Path, exclude: tuple[str, ...] = ()) -> IntakeVerdict:
+    def evaluate(self, manifest: IntakeManifest, root: Path, exclude: tuple[str, ...] = (), *,
+                 ignore_bytecode: bool = False) -> IntakeVerdict:
         """단위 하나를 판정한다."""
         digest = manifest.digest()
 
@@ -133,7 +137,7 @@ class IntakeGate:
         problems = check_pin(manifest)
         if problems:
             return refuse(ReasonCode.INTAKE_UNPINNED, problems)
-        problems, files = read_snapshot(manifest, root, exclude)
+        problems, files = read_snapshot(manifest, root, exclude, ignore_bytecode=ignore_bytecode)
         if problems:
             return refuse(ReasonCode.INTAKE_HASH_MISMATCH, problems)
         try:
@@ -252,3 +256,27 @@ def check_coverage(base: Path, manifests: list[IntakeManifest], *, unit_dir: str
             if not covered:
                 problems.append(f"{path.relative_to(base).as_posix()}: not in lock")
     return problems
+
+
+def refused_plugins(plugin_root: Path, names: list[str], lock_path: Path) -> dict[str, str]:
+    """카탈로그가 읽으려는 플러그인 중 도입 게이트를 통과하지 못한 것: 이름 -> reason_code.
+
+    `plugin_root` 는 `<base>/<source>/<unit_dir>` 이다. 잠금을 읽지 못하면 전부 거부한다. 카탈로그는
+    플러그인 코드를 실행하지 않으므로 `__pycache__` 는 무시한다.
+    """
+    source, unit_dir = plugin_root.parent.name, plugin_root.name
+    try:
+        manifests = {m.name: m for m in manifests_from_lock(lock_path, unit_dir=unit_dir)}
+    except (OSError, ValueError):
+        return dict.fromkeys(names, ReasonCode.INTAKE_NOT_ADMITTED.value)
+    gate = IntakeGate(StaticScanner())
+    refused: dict[str, str] = {}
+    for name in names:
+        manifest = manifests.get(f"{source}/{name}")
+        if manifest is None or name == "_root":
+            refused[name] = ReasonCode.INTAKE_NOT_ADMITTED.value
+            continue
+        verdict = gate.evaluate(manifest, plugin_root / name, ignore_bytecode=True)
+        if not verdict.decision.allowed:
+            refused[name] = verdict.decision.reason_code.value
+    return refused

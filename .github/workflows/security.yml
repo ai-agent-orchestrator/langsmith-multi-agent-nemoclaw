@@ -15,5 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
+      # Before anything imports vendored code: the gate fails on files that are not in the lock.
+      - run: python -B scripts/intake_gate.py --static
       - run: python scripts/security_gate.py
       - run: python scripts/sync_third_party.py --check
