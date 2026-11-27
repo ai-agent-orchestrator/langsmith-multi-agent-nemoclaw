@@ -33,16 +33,17 @@
 | # | 항목 | 결과 |
 |---|---|---|
 | 1 | 정책 조회 출력 형식 | ✅ `openshell policy get --base <sb>`: `Version/Hash/Status/Source/Config rev` 헤더 + `---` + YAML. 내장 프리셋은 **이름 그대로 키**(`pypi`, `brew-balanced` …). `--base`에는 `_provider_*` 항목이 없다(`--full`/`status`에만 있음). `nemoclaw <sb> policy get`도 있지만 샌드박스 잠금을 잡아서 느리다 → 래퍼는 `openshell`을 쓴다 |
-| 1b | 커스텀 프리셋 키 `nemoclaw_custom__<preset>__<key>` | ⚠️ 아직 미확인 — 커스텀 프리셋을 적용한 적이 없다. `policy add --from-file … --dry-run` 실측이 잠금 대기로 실패했다. 잠금 정리 후 재시도 |
-| 2 | `--from-file` 프리셋 이름 결정 | ⚠️ 미확인(1b와 함께). 생성기는 파일명과 `preset.name`을 같게 만들므로 어느 쪽이든 현재는 무해. 공식 문서상 `preset.name`은 소문자 RFC 1123, 내장 프리셋 이름과 겹치면 거부 |
+| 1b | 커스텀 프리셋 키 `nemoclaw_custom__<preset>__<key>` | ⚠️ 아직 미확인. `--dry-run`은 정책 이름만 보여 준다(예: `orchestra_langsmith`, `orchestra_payments_payments_example_invalid_443`). 실제 키는 승인된 적용 1회 후 `openshell policy get --base`로 확인해야 한다 |
+| 2 | `--from-file` 프리셋 이름 결정 | ✅ dry-run 이 `[orchestra-langsmith]`, `[orchestra-payments-egress]`로 표시(파일의 `preset.name`과 파일명이 같아 구분은 안 됨). 두 프리셋 모두 형식 검증 통과. 생성기는 파일명과 `preset.name`을 같게 만들므로 어느 쪽이든 현재는 무해. 공식 문서상 `preset.name`은 소문자 RFC 1123, 내장 프리셋 이름과 겹치면 거부 |
 | 3 | `binaries` 글롭 | ✅ 허용. 실제 정책에 `/usr/bin/python3*`, `/sandbox/.uv/python/**/python*` → 격리 단위는 샌드박스 |
 | 4 | LangSmith 경로 규칙 | ⚠️ 미확인(로컬 수신 서버 캡처 필요) |
-| 5 | 샌드박스 내부 실행 | ✅ 문법 확인: `nemoclaw <sb> exec [--workdir] [--timeout <s>] [--stdin] [--tty] -- <cmd>`. 샌드박스 사용자(`HOME=/sandbox`)로 실행, 원격 종료 코드를 그대로 반환, stdout/stderr 분리, 파이프 입력은 `--stdin` 명시 필요. ⚠️ 실제 실행은 샌드박스 잠금 대기로 미확인 |
+| 5 | 샌드박스 내부 실행 | ✅ 문법 확인: `nemoclaw <sb> exec [--workdir] [--timeout <s>] [--stdin] [--tty] -- <cmd>`. 샌드박스 사용자(`HOME=/sandbox`)로 실행, 원격 종료 코드를 그대로 반환, stdout/stderr 분리, 파이프 입력은 `--stdin` 명시 필요. ✅ 실행 확인(약 1초): `exec -- id` → `uid=998(sandbox)`, `exec -- python3 --version` → 3.13.5, 종료 코드 0 |
 | 6 | 버전 | ✅ nemoclaw v0.0.145, openshell 0.0.116(≥0.0.72), OpenClaw v2026.10.5 |
 | 7 | 정책 변경 문법 | ✅ `nemoclaw <sb> policy add [preset] [--yes] [--dry-run] [--from-file] [--from-dir] [--trusted-private-host]`(공백 문법). `policy-add`(하이픈)는 구버전 문서 표기. 비대화 실행은 `--yes` 필요 |
 | 8 | `openshell policy update` | ✅ 존재(부분 변경). `policy set`은 전체 교체 → 계속 금지 |
 | 9 | 상태 | ✅ `nemoclaw <sb> status --json`(약 2초, 스키마 `schemaVersion: 1`, `policies`, `gatewayState`, `failureLayer`) vs 텍스트 `status`(실제 추론 요청 포함, 느림) |
 | 10 | 잠금 | ✅ 소스 확인: 호스트 잠금 약 12초 재시도 후 실패, 샌드박스별 잠금 기본 30분 무출력 대기. 다른 PID 네임스페이스의 주인은 회수하지 않음 |
+| 10b | 추론 상태 | ❌(환경) `status`/`doctor` rc=1: 샌드박스 추론 요청이 HTTP 502. Ollama(11434)는 정상, 인증 프록시(127.0.0.1:11435) 미기동. 조치: `nemoclaw my-assistant connect`로 재기동. 개발·테스트는 ScriptedChatModel 이라 영향 없음 |
 | 11 | 텔레메트리 | ✅ 문서: v0.0.141+ 기본 켜짐, `NEMOCLAW_DISABLE_TELEMETRY=1`로 끔. 래퍼는 기본으로 끈다 |
 
 ### 점검 절차
