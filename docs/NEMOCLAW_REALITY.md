@@ -92,7 +92,11 @@ bash -l scripts/nemoclaw_ssh_stream_check.sh <sandbox>   # STREAMING=PASS 이고
 - SSH 표준입력으로 파생 키 설치, 지속형 transport 한 프로세스로 점검 요청 3회 모두 `worker_tool_forbidden`(기대값). 왕복 0.601초(첫 회, 워커 기동 포함) → 0.003초 → 0.002초.
 - 호스트에 `python3.14-venv` 패키지가 없으면 가상환경 생성이 실패한다(`sudo apt install -y python3.14-venv`).
 
-**확인하지 못한 것:** `-m nemoclaw` pytest 실연동, 적용된 정책의 `policy get` 출력, 네트워크 차단·Landlock 이 실제로 막는지, 워커 재시작·타임아웃 동작, NemoClaw 가 관리하지 않는 샌드박스가 기존 샌드박스에 주는 영향.
+- `-m nemoclaw` 실연동 pytest `1 passed`(Python 3.14).
+- `openshell policy get --base orchestra-code`: `Status: Effective`, `Source: sandbox`. 내용은 `nemoclaw/policy-worker.yaml`과 같고, 빈 `network_policies`는 **출력에서 생략**됨(#21 실측 확인). 저장소 파서에 이 출력을 넣어 `network_policies` 없음, drift 0건 확인.
+- 지속형 transport 의 왕복 시간에는 러너가 실행 전마다 하는 `openshell policy get`(1초 미만, §3)이 포함되지 않는다.
+
+**확인하지 못한 것:** 네트워크 차단·Landlock 이 실제로 막는지, 워커 재시작·타임아웃 동작, NemoClaw 가 관리하지 않는 샌드박스가 기존 샌드박스에 주는 영향.
 
 설치 절차 (**WSL2 셸 안에서** — PowerShell 이면 먼저 `bash -l`. 샌드박스 생성은 사용자 승인 후):
 ```bash

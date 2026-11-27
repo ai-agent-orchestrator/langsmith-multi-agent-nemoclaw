@@ -63,7 +63,8 @@ python scripts/sync_third_party.py --check
 > - 실설치 SSH 점검: 통과(2026-11-27, `scripts/nemoclaw_ssh_stream_check.sh`, REALITY §3.1).
 > - 설치 경로: `nemoclaw onboard --from`은 워커 이미지에 쓸 수 없어(REALITY §3.2) `scripts/nemoclaw_worker_sandbox.py`가 `openshell sandbox create --from`을 쓴다. `docs/DESIGN.md`의 `onboard --from` 서술과 다르다. 키는 샌드박스별 파생 키.
 > - 실설치(2026-11-27): 사용자가 `orchestra-code` 샌드박스를 생성했고 워커 점검이 통과했다(REALITY §3.2). 되돌리기 `openshell sandbox delete orchestra-code`.
-> - 남음: `-m nemoclaw` 실연동 pytest 와 적용 정책 확인. `orchestra-code`에서 실행할 샌드박스 툴 정의.
+> - `-m nemoclaw` 실연동 pytest 통과, 적용 정책 확인(REALITY §3.2).
+> - 남음: `orchestra-code`에서 실행할 샌드박스 툴 정의. 네트워크 차단·재시작·부하 확인, 샌드박스 CPU·메모리 상한.
 > - 아래는 당시 명세 기록이다.
 
 - 이유: nemoclaw 호출은 무겁고 호스트 잠금으로 직렬화된다. 툴 호출마다 `exec`를 새로 띄우면 멀티 에이전트가 사실상 멈춘다(KNOWN_ISSUES §2, §4).
