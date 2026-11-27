@@ -13,7 +13,7 @@ This repo covers the part of NemoClaw you can **see and run offline**: `ToolSpec
 ## Appendix — Original skeleton (supervisor / handoff / hybrid / hierarchical, LangSmith)
 
 The earlier skeleton (`travel_planner/`) is kept as is (its 14 original tests still pass); a backward-compatible shim onto `orchestra/` is Codex task C2.
-The detailed legacy write-up (structure diagrams, LangSmith wrapper, security modes, bottleneck report, playground) is in the Korean README: [`README.ko.md`](../README.ko.md#부록--기존-골격-supervisor--handoff--hybrid--hierarchical-langsmith-연동).
+The detailed legacy write-up (structure diagrams, LangSmith wrapper, security modes, bottleneck report, playground) is in the Korean README: [`README.ko.md`](IMPLEMENTATION.ko.md#부록--기존-골격-supervisor--handoff--hybrid--hierarchical-langsmith-연동).
 
 Approval records bind the full canonical arguments, caller identity, server-derived
 amount, expiry and request/thread ID with a full SHA-256 key. Set
