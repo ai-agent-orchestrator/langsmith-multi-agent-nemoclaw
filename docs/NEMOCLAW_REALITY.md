@@ -111,10 +111,31 @@ openshell sandbox delete orchestra-code                                  # 되�
 ```
 
 **남은 제약**
-- `orchestra-code`에서 실행할 툴이 아직 없다. `claude_dev`에는 샌드박스 툴이 없어 러너는 `sandbox_not_declared`를 돌려주며, 지금 확인할 수 있는 것은 워커 왕복(점검 요청)뿐이다.
+- 2026-11-27 에 만든 `orchestra-code` 이미지에는 툴이 없다. 읽기 툴은 §3.3, 이미지를 다시 만들어야 들어간다.
 - 샌드박스 사용자로 실행되는 코드는 그 샌드박스의 파생 키를 읽을 수 있다. 다른 샌드박스의 요청은 서명할 수 없다.
 - 워커 이미지의 샌드박스 이름·조직 파일은 `orchestra-code`/`claude_dev` 고정이다.
 - 호스트에서 지속형 transport 를 쓰려면 `NEMOCLAW_TRANSPORT=ssh_stream`, `NEMOCLAW_EXEC_VERIFIED=1`, `ORCHESTRA_CAPABILITY_KEY_FILE=<마스터 키 파일>`.
+
+### 3.3 워크스페이스 읽기 툴 — 오프라인 확인, **실설치 미확인**
+| 항목 | 내용 |
+|---|---|
+| 툴 | `fs_read`·`fs_list`·`fs_glob`·`fs_grep`. READ 등급, `sandbox: required`, 샌드박스 `orchestra-code`, 네트워크 선언 없음 |
+| 권한 | `claude_dev`의 `feature-dev/code-explorer`(`code_explorer`)만 |
+| 경로 제한 | `ORCHESTRA_WORKSPACE` 아래 상대경로만. 심볼릭 링크는 어느 단계에서도 따라가지 않음(디렉터리 fd 기준 `O_NOFOLLOW`). 하드 링크가 있는 파일·특수 파일·비 UTF-8 거부. 설정이 없거나 `/`면 실패 |
+| 숨김 | `.git`·`.ssh`·`.env*`(`.env.example` 제외)·`*.pem`·`*.key` 등 이름 기반. 다른 이름의 비밀 파일은 가리지 못함 |
+| 상한 | 파일 2MB, 반환 10만 자, 항목 500, 일치 100, 검색 5,000 항목·20MB·10초 |
+| 확인한 범위 | 러너(정책 확인·서명) → 실제 워커 프로세스 → pre/post 필터. 이미지의 `requirements-worker.lock` 의존성으로 워커 실행(Python 3.11). 이미지 빌드는 이번 변경 뒤 다시 하지 않음 |
+
+실설치 확인 (WSL2 셸, 저장소 최신 상태에서. 샌드박스 삭제·재생성은 사용자 승인 후):
+```bash
+cd ~/orchestra && git pull && . .venv/bin/activate
+openshell sandbox delete orchestra-code
+BASE="$(docker image inspect python:3.11-slim --format '{{index .RepoDigests 0}}')"; echo "$BASE"
+python scripts/nemoclaw_worker_sandbox.py --python-base "$BASE" --yes
+ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$HOME/.config/orchestra/capability.key" \
+  pytest -m nemoclaw tests/test_workspace_sandbox.py
+```
+합격: `WORKER_PROBE=PASS`, pytest `1 passed`. 이 시험은 빈 워크스페이스 목록과 워크스페이스 밖 경로 거부를 본다. 네트워크 차단·Landlock 은 확인하지 않는다.
 
 ### 점검 절차
 ```bash
