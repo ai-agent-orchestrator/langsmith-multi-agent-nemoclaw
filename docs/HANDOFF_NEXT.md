@@ -12,10 +12,19 @@
 | 실측 완료 | CLI 문법, `openshell policy get --base` 출력 형식, `exec`(약 1초, `uid=998(sandbox)`, Python 3.13.5), 우리 프리셋 2개 dry-run 통과 → `docs/NEMOCLAW_REALITY.md` §3 |
 | 해결한 장애 | 이전 WSL 부팅이 남긴 샌드박스 잠금 때문에 nemoclaw 샌드박스 명령이 전부 멈춤 → `scripts/nemoclaw_lock_doctor.sh --clean`으로 해결(45초 이상 → 1.15초) |
 | 남은 환경 문제 | 샌드박스 추론 HTTP 502(Ollama 인증 프록시 미기동). 개발엔 영향 없음(ScriptedChatModel). 실제 대화가 필요하면 사용자가 `nemoclaw my-assistant connect` |
-| 테스트 | **319 통과 / 22 실패 + 1 파일 import 오류** — 전부 스냅샷에 빠진 코어 때문(아래 1단계) |
-| 정적 검사 | `ruff` 통과, `mypy orchestra` 2 오류(같은 원인) |
+| 테스트 | **360 통과 / 실패 0** (1개 제외 마커), Python 3.11 + `.[dev]` 새 환경에서 확인. 1단계 시작 전에는 319 통과 / 22 실패 + 1 파일 import 오류 |
+| 정적 검사 | `ruff` 통과, `mypy orchestra` 오류 0 |
 
-## 1단계 — 복원 마무리: 실패 테스트 22개 + import 오류 1개 (먼저 할 것)
+## 1단계 — 복원 마무리: 실패 테스트 22개 + import 오류 1개 (완료)
+
+> **완료 (2026-11-27).** 다음 작업은 2단계다. 아래 표는 당시 명세 기록이다.
+> 빠진 파일의 원본을 찾지 못해 테스트를 명세로 새로 구현했다. 설계(`docs/DESIGN.md`)와 다른 점:
+> - 샌드박스(`nemoclaw*`) 모드의 실제 모델은 호스트가 `inference.local` 인 openai_compatible 만 허용하고, 샌드박스 밖 openai_compatible 은 loopback 만 허용한다.
+> - 승인은 `True` / `{"approved": True}` 만 인정한다. 서명 도입 전에 기록된 승인은 다시 받아야 한다.
+> - 감사 로그는 식별자 형태의 정해진 필드만 원문으로 남기고 나머지는 digest 로 남긴다. 감사 DB 경로용 환경변수는 없다(`services["audit_log"]` 로 주입).
+> - 팀 회로 차단기는 자동 분할 전 선언 팀 기준으로 묶는다. 오프라인 평가는 SDK 를 호출하지 않는다.
+> - `claude_dev` 는 리뷰 팀만 있다(§7.4 의 glob 확장, feature/platform 팀, cli 실행 방식 미구현). 리뷰 결과 feedback `review_kept_ratio` 는 없다.
+> - `concert_payment` 조직과 도메인 교체 테스트(§12.3 보너스의 결제 부분)는 만들지 않았다.
 
 실패 테스트가 곧 명세다. **테스트를 고치지 말고 코드를 채운다.** 기존 통과 테스트는 수정 금지(AGENTS.md 규칙 1).
 
