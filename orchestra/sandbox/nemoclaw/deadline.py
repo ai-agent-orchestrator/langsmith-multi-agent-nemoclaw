@@ -8,6 +8,9 @@ import signal
 import threading
 from typing import Any, Iterator
 
+# An alarm that fired while the context managers were still being entered could skip their cleanup.
+_MIN_ALARM_S = 0.001
+
 
 class ToolDeadlineExceeded(BaseException):
     """Not an Exception, so a tool's or a filter's own error handling does not swallow it."""
@@ -60,7 +63,7 @@ def _interrupt(seconds: float) -> Iterator[None]:
 
     previous = signal.signal(signal.SIGALRM, expire)
     try:
-        signal.setitimer(signal.ITIMER_REAL, seconds)
+        signal.setitimer(signal.ITIMER_REAL, max(seconds, _MIN_ALARM_S))
         yield
     finally:
         armed = False  # first, so a late alarm cannot interrupt the cleanup below

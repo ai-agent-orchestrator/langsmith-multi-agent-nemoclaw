@@ -194,3 +194,53 @@ def test_live_read_tool_runs_inside_the_worker_sandbox():
         assert outside.output == {"error": "path_not_allowed"}
     finally:
         transport.close()
+
+
+def timeout_then_serving(transport, runner) -> None:
+    """A call with no time to run comes back as a timeout and the same worker session answers the next one."""
+    assert runner.exec(request("fs_list")).ok
+    session = transport._slots[BOX].session.process.pid
+    late = request("fs_list")
+    late.timeout_s = 1e-6
+    assert runner.exec(late).error == "worker_timeout"
+    again = runner.exec(request("fs_list"))
+    assert again.ok, again.error
+    assert transport._slots[BOX].session.process.pid == session
+
+
+def test_shipped_worker_process_survives_a_timeout(workspace, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "capability.key").write_bytes(derive_sandbox_key(MASTER, BOX))
+    script = tmp_path / "entry.py"
+    script.write_text(ENTRY, encoding="utf-8")
+    transport = PersistentTransport(
+        lambda sandbox: [sys.executable, str(script), str(ROOT), str(state), str(workspace)], startup_timeout_s=60)
+    try:
+        timeout_then_serving(transport, runner_for(resolved_org(), transport))
+    finally:
+        transport.close()
+
+
+@pytest.mark.nemoclaw
+def test_live_worker_reports_a_timeout_and_keeps_serving():
+    """Real install only; same environment variables as the live test above.
+
+    It exercises the timer, the watchdog and the reply under the sandbox policy. It does not show a long
+    running tool being interrupted, because the sandbox has no such tool.
+    """
+    from orchestra.sandbox.nemoclaw.ssh_launcher import OpenShellSshLauncher
+
+    sandbox = os.environ.get("ORCHESTRA_NEMOCLAW_LIVE_SANDBOX")
+    key_file = os.environ.get("ORCHESTRA_CAPABILITY_KEY_FILE")
+    if sandbox != BOX or not key_file:
+        pytest.skip("ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code and ORCHESTRA_CAPABILITY_KEY_FILE are required")
+    cli = NemoClawCli(openshell=os.environ.get("OPENSHELL_BIN", "openshell"), dialect="modern")
+    transport = PersistentTransport(OpenShellSshLauncher(cli, ssh=os.environ.get("SSH_BIN", "ssh")),
+                                    startup_timeout_s=60)
+    runner = NemoClawRunner(cli, {BOX: {}}, transport=transport,
+                            authority=SandboxKeyedAuthority(Path(key_file).read_bytes(), grants_of(resolved_org())))
+    try:
+        timeout_then_serving(transport, runner)
+    finally:
+        transport.close()
