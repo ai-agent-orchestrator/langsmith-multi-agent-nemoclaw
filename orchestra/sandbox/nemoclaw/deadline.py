@@ -34,12 +34,16 @@ def _hard_exit(seconds: float | None) -> Iterator[None]:
         return
     # faulthandler's watchdog is a C thread: it fires even when no Python code can run.
     # Its traceback is discarded because it would name sandbox paths.
-    with open(os.devnull, "w") as sink:
+    # Open for writing only: the sandbox policy grants /dev/null, and nothing here needs to create it.
+    sink = os.open(os.devnull, os.O_WRONLY)
+    try:
         faulthandler.dump_traceback_later(seconds, exit=True, file=sink)
         try:
             yield
         finally:
             faulthandler.cancel_dump_traceback_later()
+    finally:
+        os.close(sink)
 
 
 @contextlib.contextmanager
