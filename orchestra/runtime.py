@@ -38,6 +38,8 @@ class EventLog:
         self._explicit_store = store is not None
         self.scope = scope
         self.audit: Optional[AuditLog] = None
+        # 저장한 이벤트를 알려 준다(관측용). 기록 결과를 바꾸지 못한다.
+        self.listeners: list[Callable[[str, dict[str, Any]], None]] = []
         self.store = store or MemoryLedgerStore()
         self.bind_store(self.store)
 
@@ -75,6 +77,12 @@ class EventLog:
             self._seen.add(str(dedupe_key))
         if saved is not None and not self.store.persistent:
             self._events.append(Event(kind, data, seq=saved["seq"]))
+        if saved is not None:
+            for listener in self.listeners:
+                try:
+                    listener(kind, dict(data))
+                except Exception:  # noqa: BLE001, S110 - observation must not change enforcement
+                    pass
 
     def of(self, *kinds: str) -> list[Event]:
         return [e for e in self.events if e.kind in kinds]

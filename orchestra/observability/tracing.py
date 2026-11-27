@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from typing import Any, Iterator
 
 from langsmith import trace, tracing_context, get_current_run_tree
 
+from ..security.decision import Decision, DecisionAction, ReasonCode
 from .masking import mask_any
 from .client import SafeClient, make_client, security_mode
 from .safe import safe_call
 
 _CLIENT: ContextVar[Any] = ContextVar("orchestra_trace_client", default=None)
+_SOURCE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 
 
 @contextmanager
@@ -125,6 +128,21 @@ class Observation:
             result["callbacks"] = [*config.get("callbacks", []), *([tracer] if tracer else [])]
         return result
 
+    def report_decision(self, kind: str, data: dict) -> None:
+        """Record a refusal as a run whose metadata is its reason code; no reason text or arguments."""
+        code = data.get("reason_code")
+        if not code or not self.enabled or self.mode == "closed":
+            return
+        by = "sandbox" if kind == "sandbox" else data.get("by")
+        decision = Decision(action=DecisionAction.DENY, reason_code=ReasonCode(code),
+                            by=by if isinstance(by, str) and _SOURCE.fullmatch(by) else None)
+        metadata = decision.trace_metadata()
+        # A request refused before the graph starts has no parent run and no tracing scope yet.
+        context = nullcontext() if safe_call(get_current_run_tree) is not None else self.scope()
+        with context, span("security:decision", metadata=metadata, client=self.client) as tree:
+            if tree is not None:
+                safe_call(tree.end, outputs=metadata)
+
     def scope(self) -> Any:
         """Return an isolated per-invocation tracing context."""
         return tracing_scope(self.mode, self.client, enabled=self.enabled)
@@ -141,4 +159,7 @@ class Observation:
             app.runtime.sandbox = TracedSandbox(app.runtime.sandbox, self.mode)
         app.chain.entries[:] = [(spec, flt if isinstance(flt, TracedFilter) else TracedFilter(flt))
                                 for spec, flt in app.chain.entries]
+        listeners = app.runtime.events.listeners
+        if not any(getattr(item, "__func__", None) is Observation.report_decision for item in listeners):
+            listeners.append(self.report_decision)
         return OrchestraService(app, config_hook=self.config_hook, scope=self.scope)
