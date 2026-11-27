@@ -12,6 +12,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import stat
 import sys
 from typing import Any
@@ -25,6 +26,10 @@ _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL")
 CHECK_NAMES = ("control_tmp_write", "direct_tcp_refused", "proxy_tunnel_refused", "proxy_http_refused",
                "write_var_tmp_refused", "write_dev_shm_refused", "write_code_refused", "read_unlisted_refused",
                "not_root", "no_capabilities", "no_new_privileges", "memfd_refused")
+# Judged only when the host script names the sandbox's inference host.
+INFERENCE_CHECK = "inference_route_refused"
+# OpenShell 0.0.116 answers this when the sandbox's workspace has no inference route.
+_NO_ROUTE = b"cluster inference is not configured"
 
 
 def _name(error: OSError) -> str:
@@ -136,6 +141,79 @@ def get_request(host: str) -> str:
     return f"GET http://{host}/ HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
 
 
+def _head(connection: socket.socket) -> tuple[int | None, bytes, bytes]:
+    """Read one response head; return its status, the head and any body bytes that came with it."""
+    reply = b""
+    while b"\r\n\r\n" not in reply and len(reply) < 16_384:
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        reply += chunk
+    head, _, body = reply.partition(b"\r\n\r\n")
+    match = re.match(rb"HTTP/1\.[01] (\d{3})", head)
+    return (int(match.group(1)) if match else None), head, body
+
+
+def inference_exchange(proxy: tuple[str, int], host: str, method: str, path: str, body: bytes = b"", *,
+                       timeout_s: float = 20.0, context: Any = None) -> tuple[int | None, str, bytes]:
+    """Send one request through the proxy tunnel to `host`.
+
+    Returns (status, "", start of the body), or (None, reason, b"") when no response status arrived.
+    """
+    try:
+        with socket.create_connection(proxy, timeout=timeout_s) as plain:
+            plain.sendall(connect_request(host, 443).encode("ascii"))
+            tunnel, _, _ = _head(plain)
+            if tunnel != 200:
+                return None, f"tunnel_status={tunnel}", b""
+            context = context or ssl.create_default_context()
+            with context.wrap_socket(plain, server_hostname=host) as secured:
+                headers = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close"]
+                if body:
+                    headers += ["Content-Type: application/json", f"Content-Length: {len(body)}"]
+                secured.sendall("\r\n".join(headers).encode("ascii") + b"\r\n\r\n" + body)
+                status, head, received = _head(secured)
+                length = re.search(rb"(?im)^content-length:\s*(\d{1,9})", head)
+                wanted = min(int(length.group(1)), 4096) if length else 0
+                while len(received) < wanted:
+                    chunk = secured.recv(4096)
+                    if not chunk:
+                        break
+                    received += chunk
+    except socket.timeout:
+        return None, "timeout", b""
+    except ssl.SSLError:
+        return None, "tls_failed", b""
+    except OSError as error:
+        return None, _name(error), b""
+    return (status, "", received[:4096]) if status is not None else (None, "unrecognized_reply", b"")
+
+
+def inference_refused(proxy: tuple[str, int] | None, host: str, **options: Any) -> Result:
+    """Ask for the model list. Only a refused tunnel or "no route configured" counts as refused."""
+    if proxy is None:
+        return UNKNOWN, "no_proxy_configured"
+    status, reason, body = inference_exchange(proxy, host, "GET", "/v1/models", **options)
+    if status is None:
+        return (PASS if reason == "tunnel_status=403" else UNKNOWN), reason
+    if status == 503 and _NO_ROUTE in body:
+        return PASS, "no_route"
+    if 200 <= status < 300:
+        return FAIL, f"model_server_answered,status={status}"
+    return FAIL, f"route_present,status={status}"
+
+
+def generation_report(proxy: tuple[str, int] | None, host: str, **options: Any) -> str:
+    """Ask for a one-token reply to a fixed word; report only the status."""
+    if proxy is None:
+        return "no_proxy_configured"
+    body = json.dumps({"model": "probe", "max_tokens": 1,
+                       "messages": [{"role": "user", "content": "ping"}]}).encode()
+    status, reason, _ = inference_exchange(proxy, host, "POST", "/v1/chat/completions", body,
+                                           **{"timeout_s": 60.0, **options})
+    return reason if status is None else f"status={status}"
+
+
 def process_status(text: str) -> dict[str, Result]:
     """Judge the privileges listed in /proc/self/status."""
     fields = dict(line.split(":", 1) for line in text.splitlines() if ":" in line)
@@ -183,16 +261,17 @@ def run(config: dict[str, Any]) -> list[str]:
             checks.update(process_status(handle.read(65_536)))
     except OSError as error:
         checks.update({name: (UNKNOWN, _name(error)) for name in ("no_capabilities", "no_new_privileges")})
+    inference = config.get("inference_host")
+    if inference:
+        checks[INFERENCE_CHECK] = inference_refused(proxy, str(inference))
     lines = [f"CHECK {name} {result} {detail}" for name, (result, detail) in checks.items()]
     try:
         socket.getaddrinfo(web, 443)
         lines.append("INFO dns_resolution resolved")
     except OSError:
         lines.append("INFO dns_resolution failed")
-    inference = config.get("inference_host")
-    if inference and proxy is not None:
-        status, reason = _status(proxy, connect_request(str(inference), 443), 10.0)
-        lines.append(f"INFO inference_tunnel {f'status={status}' if status is not None else reason}")
+    if inference and config.get("send_prompt"):
+        lines.append(f"INFO inference_generation {generation_report(proxy, str(inference))}")
     names = sorted(name for name in os.environ
                    if _SECRET_NAME.search(name.upper()) and not name.endswith("_FILE"))
     listed = f"count={len(names)},{','.join(names)}"[:200] if names else "none"

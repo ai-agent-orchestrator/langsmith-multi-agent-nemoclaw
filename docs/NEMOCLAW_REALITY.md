@@ -163,7 +163,9 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 | `not_root`·`no_capabilities`·`no_new_privileges` | 권한 없는 프로세스 |
 | `memfd_refused` | `memfd_create` 가 EPERM(seccomp) |
 
-`ISOLATION=PASS` 는 전부 통과, `FAIL` 은 하나라도 허용됨, `INCOMPLETE` 는 확인하지 못한 항목이 있음. 판정하지 않는 정보: DNS 해석 여부, 비밀값 모양의 환경변수 **이름**, `--inference-host inference.local` 을 주면 프록시가 그 터널을 여는지(OpenShell 0.0.116 `proxy.rs` 는 네트워크 정책 평가 전에 `inference.local:443` 터널을 연다 — 소스 확인).
+`ISOLATION=PASS` 는 전부 통과, `FAIL` 은 하나라도 허용됨, `INCOMPLETE` 는 확인하지 못한 항목이 있음. 판정하지 않는 정보: DNS 해석 여부, 비밀값 모양의 환경변수 **이름**.
+
+`--inference-host inference.local` 을 주면 `inference_route_refused` 를 함께 판정한다: 모델 목록(`GET /v1/models`)을 요청해, 터널이 403 이거나 "라우트 없음" 503 일 때만 통과. 그 밖의 HTTP 응답은 라우트가 있다는 뜻이라 `FAIL`. `--send-prompt` 는 `ping` 한 단어에 1토큰 응답을 추가로 요청해 상태 코드만 보여 준다(게이트웨이가 가리키는 모델이 실행되며, 유료 서비스면 비용이 든다).
 점검 범위 밖: CPU·메모리 상한, 샌드박스 간 격리, DNS 를 통한 유출.
 
 **실설치 실측 (2026-11-27, WSL2, 사용자 실행, `--inference-host inference.local`):** `ISOLATION=PASS`. 이미지는 `ec2558e` 로 만든 `orchestra-code`, 점검 스크립트는 `48e7b6a`.
@@ -177,7 +179,13 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 | 정보 | DNS 해석 실패, 비밀값 모양의 환경변수 이름 없음 |
 | ⚠️ `inference.local` | 네트워크 규칙이 없어도 프록시가 터널을 연다(`status=200`) |
 
-**남은 확인:** `inference.local` 터널로 보낸 요청이 실제 모델까지 가는지, 간다면 워커 샌드박스에서 막는 방법. 확인 전에는 이 샌드박스를 "네트워크가 완전히 없다"고 설명하지 않는다.
+**남은 확인:** `inference.local` 터널로 보낸 요청이 실제 모델까지 가는지. 확인 전에는 이 샌드박스를 "네트워크가 완전히 없다"고 설명하지 않는다.
+
+**`inference.local` — 소스 확인 (OpenShell 0.0.116, 실설치 미확인):**
+- 프록시는 네트워크 정책 평가 전에 `inference.local:443` 터널을 연다(`openshell-supervisor-network/src/proxy.rs`). 프리셋·정책으로는 막지 못한다.
+- 추론 요청은 샌드박스 밖의 프록시가 게이트웨이의 라우트와 자격 증명으로 전달한다. 라우트가 있으면 샌드박스 코드는 키 없이 모델을 부를 수 있다.
+- 라우트는 **OpenShell 워크스페이스 단위**다(`openshell-server/src/inference.rs` `get_inference_bundle` → 샌드박스의 워크스페이스, `docs/sandboxes/manage-workspaces.mdx`). 라우트가 없으면 503 `cluster inference is not configured`.
+- 막는 방법(적용 전, 게이트웨이 설정 변경이라 사용자 승인 필요): 추론 라우트를 두지 않는 별도 워크스페이스(`openshell workspace create --name orchestra-worker`)에 워커 샌드박스를 만들고, 호스트의 OpenShell 호출에 `OPENSHELL_WORKSPACE=orchestra-worker` 를 준다. 그 워크스페이스에 나중에 라우트를 설정하면 다시 열리므로 점검으로 확인한다.
 
 ### 점검 절차
 ```bash

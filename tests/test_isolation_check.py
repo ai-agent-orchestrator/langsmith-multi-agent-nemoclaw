@@ -196,3 +196,108 @@ def test_the_script_judges_what_the_sandbox_answers(monkeypatch, capsys):
     assert capsys.readouterr().out.rstrip().endswith("ISOLATION=PASS")
     assert sent["argv"][1] == "orchestra-code" and sent["argv"][2].startswith("/opt/orchestra/venv/bin/python -I - ")
     assert sent["shell"] is False and sent["timeout"] and sent["input"] == Path(probe.__file__).read_bytes()
+
+
+class _NoTls:
+    """Stands in for TLS: the fake proxy speaks plain text after the tunnel is open."""
+
+    def wrap_socket(self, connection, server_hostname):
+        return contextlib.nullcontext(connection)
+
+
+@contextlib.contextmanager
+def tunnel(tunnel_reply: bytes, response: bytes | None):
+    """A loopback proxy: answers CONNECT, then (if the tunnel opened) one request, and stays open."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    received: list[bytes] = []
+    done = threading.Event()
+
+    def answer() -> None:
+        with contextlib.suppress(OSError):
+            connection, _ = listener.accept()
+            with connection:
+                connection.settimeout(5)
+                received.append(connection.recv(4096))
+                connection.sendall(tunnel_reply)
+                if response is not None:
+                    received.append(connection.recv(4096))
+                    for part in (response[:20], response[20:]):
+                        connection.sendall(part)
+                    done.wait(5)
+
+    thread = threading.Thread(target=answer, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname(), received
+    finally:
+        done.set()
+        listener.close()
+        thread.join(6)
+
+
+OPEN = b"HTTP/1.1 200 Connection Established\r\n\r\n"
+
+
+def reply(status: str, body: bytes) -> bytes:
+    return f"HTTP/1.1 {status}\r\ncontent-length: {len(body)}\r\n\r\n".encode() + body
+
+
+@pytest.mark.parametrize("answer,expected", [
+    (reply("503 Service Unavailable", b'{"error":"cluster inference is not configured"}'), ("PASS", "no_route")),
+    (reply("503 Service Unavailable", b'{"error":"inference service unavailable"}'),
+     ("FAIL", "route_present,status=503")),
+    (reply("502 Bad Gateway", b"{}"), ("FAIL", "route_present,status=502")),
+    (reply("200 OK", b'{"data":[]}'), ("FAIL", "model_server_answered,status=200")),
+    (b"nonsense\r\n\r\n", ("UNKNOWN", "unrecognized_reply")),
+])
+def test_only_a_missing_route_counts_as_closed_inference(answer, expected):
+    with tunnel(OPEN, answer) as (address, received):
+        assert probe.inference_refused(address, "model.test", context=_NoTls(), timeout_s=3) == expected
+    assert received[1].startswith(b"GET /v1/models HTTP/1.1\r\nHost: model.test\r\n")
+
+
+@pytest.mark.parametrize("opening,expected", [
+    (b"HTTP/1.1 403 Forbidden\r\n\r\n", ("PASS", "tunnel_status=403")),
+    (b"HTTP/1.1 502 Bad Gateway\r\n\r\n", ("UNKNOWN", "tunnel_status=502")),
+])
+def test_a_refused_inference_tunnel(opening, expected):
+    with tunnel(opening, None) as (address, _):
+        assert probe.inference_refused(address, "model.test", context=_NoTls(), timeout_s=3) == expected
+
+
+def test_a_peer_that_does_not_speak_tls_is_unknown():
+    with tunnel(OPEN, reply("200 OK", b"x")) as (address, _):
+        assert probe.inference_refused(address, "model.test", timeout_s=3)[0] == "UNKNOWN"
+    assert probe.inference_refused(None, "model.test")[0] == "UNKNOWN"
+
+
+def test_the_generation_request_is_one_fixed_token_and_only_its_status_is_reported():
+    with tunnel(OPEN, reply("200 OK", b'{"choices":["secret words"]}')) as (address, received):
+        assert probe.generation_report(address, "model.test", context=_NoTls(), timeout_s=3) == "status=200"
+    head, body = received[1].split(b"\r\n\r\n", 1)
+    assert head.startswith(b"POST /v1/chat/completions HTTP/1.1")
+    assert json.loads(body)["max_tokens"] == 1
+
+
+@pytest.mark.parametrize("arguments,judged,prompt", [
+    (["--inference-host", "model.test"], True, False),
+    (["--inference-host", "model.test", "--send-prompt"], True, True),
+    ([], False, False),
+])
+def test_the_script_adds_the_inference_check_only_when_asked(monkeypatch, capsys, arguments, judged, prompt):
+    from orchestra.sandbox.nemoclaw import ssh_launcher
+
+    commands: list[str] = []
+    monkeypatch.setattr(ssh_launcher.OpenShellSshLauncher, "argv",
+                        lambda self, sandbox, command: commands.append(command) or ["x"])
+    monkeypatch.setattr(check.socket, "create_connection", lambda *a, **k: contextlib.nullcontext())
+    monkeypatch.setattr(check.subprocess, "run",
+                        lambda argv, **k: subprocess.CompletedProcess(argv, 0, lines().encode(), b""))
+    assert check.main(arguments) == (2 if judged else 0)  # the stand-in report lacks the extra check
+    assert ("CHECK inference_route_refused UNKNOWN missing" in capsys.readouterr().out) is judged
+    assert f'"send_prompt": {str(prompt).lower()}' in commands[0]
+
+
+def test_a_prompt_needs_an_inference_host():
+    with pytest.raises(SystemExit):
+        check.main(["--send-prompt"])

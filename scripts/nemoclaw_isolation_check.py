@@ -8,6 +8,11 @@ beyond the request line.
 
     python scripts/nemoclaw_isolation_check.py
     python scripts/nemoclaw_isolation_check.py --inference-host inference.local
+    python scripts/nemoclaw_isolation_check.py --inference-host inference.local --send-prompt
+
+--inference-host adds a judged check: it asks that host for its model list. --send-prompt also asks
+for a one-token reply to the word "ping", which runs whatever model the gateway routes to (and may
+cost money if that is a paid service); only the response status is reported.
 
 Exit status: 0 ISOLATION=PASS, 1 FAIL (something was allowed), 2 INCOMPLETE (not shown either way).
 """
@@ -92,29 +97,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tcp-target", type=tcp_target, default=("1.1.1.1", 443), help="public IP:port")
     parser.add_argument("--web-host", type=host_name, default="example.com", help="public web host")
     parser.add_argument("--inference-host", type=host_name, default=None,
-                        help="also report (not judge) whether the proxy opens a tunnel to this host")
+                        help="also check that no model route answers on this host")
+    parser.add_argument("--send-prompt", action="store_true", help="also request a one-token reply")
     args = parser.parse_args(argv)
+    if args.send_prompt and not args.inference_host:
+        parser.error("--send-prompt needs --inference-host")
     sys.path.insert(0, str(ROOT))
     from orchestra.sandbox.nemoclaw.cli import NemoClawCli
-    from orchestra.sandbox.nemoclaw.isolation_probe import CHECK_NAMES
+    from orchestra.sandbox.nemoclaw.isolation_probe import CHECK_NAMES, INFERENCE_CHECK
     from orchestra.sandbox.nemoclaw.ssh_launcher import OpenShellSshLauncher
 
     config = {"tcp_host": args.tcp_target[0], "tcp_port": args.tcp_target[1], "web_host": args.web_host,
-              "inference_host": args.inference_host}
+              "inference_host": args.inference_host, "send_prompt": args.send_prompt}
+    names = CHECK_NAMES + ((INFERENCE_CHECK,) if args.inference_host else ())
     controls = reachable(*args.tcp_target) and reachable(args.web_host, 443) and reachable(args.web_host, 80)
     launcher = OpenShellSshLauncher(NemoClawCli(openshell=os.environ.get("OPENSHELL_BIN", "openshell"),
                                                 dialect="modern"), ssh=os.environ.get("SSH_BIN", "ssh"))
     source = (ROOT / "orchestra" / "sandbox" / "nemoclaw" / "isolation_probe.py").read_bytes()
     try:
         command = launcher.argv(SANDBOX, shlex.join((PYTHON, "-I", "-", json.dumps(config))))
-        done = subprocess.run(command, shell=False, input=source, capture_output=True, timeout=120)
+        done = subprocess.run(command, shell=False, input=source, capture_output=True, timeout=180)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         print(f"the probe could not run: {type(error).__name__}")
         print("ISOLATION=INCOMPLETE")
         return 2
     if done.returncode != 0:
         print(f"the probe exited with status {done.returncode}")
-    lines, verdict = judge(done.stdout[:100_000].decode("utf-8", errors="replace"), CHECK_NAMES,
+    lines, verdict = judge(done.stdout[:100_000].decode("utf-8", errors="replace"), names,
                            targets_reachable=controls)
     if done.returncode != 0 and verdict == "PASS":
         verdict = "INCOMPLETE"
