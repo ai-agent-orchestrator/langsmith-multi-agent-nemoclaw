@@ -131,6 +131,11 @@ openshell sandbox delete orchestra-code                                  # 되�
 - 이전 `orchestra-code` 삭제 → 248개 파일 컨텍스트에서 이미지 빌드(베이스는 §3.2 와 같은 digest) → 샌드박스 재생성 → `WORKER_PROBE=PASS`(0.653초, 0.002초, 0.002초).
 - `pytest -m nemoclaw tests/test_workspace_sandbox.py` `1 passed`: 샌드박스 안에서 `fs_list` 성공, `fs_read ../state/capability.key` 는 `path_not_allowed`.
 
+**시간 초과 응답 실측 (같은 날, 사용자 실행):**
+- 대상 코드: `ec2558e`(4단계 병합 코드 포함). `orchestra-code` 를 다시 만든 뒤 `pytest -m nemoclaw tests/test_workspace_sandbox.py tests/test_nemoclaw_persistent.py` `3 passed`(점검 스크립트가 성공해야 pytest 가 실행되는 명령).
+- 확인: 실행 시간이 없는 요청이 `worker_timeout` 으로 돌아오고, 같은 워커 SSH 세션이 다음 요청을 처리한다. 즉 알람 타이머와 감시 장치를 거는 코드가 샌드박스 정책 아래에서 동작한다.
+- **확인하지 못한 것:** 오래 걸리는 툴을 실제로 중단하는 동작, 워커 프로세스 강제 종료와 재시작.
+
 **확인하지 못한 것:** 파일이 있는 워크스페이스에서의 `fs_read`·`fs_glob`·`fs_grep`, 실설치에서의 링크·숨김 파일 거부. 위 거부는 툴의 경로 검사 결과이며 Landlock·네트워크 차단 확인이 아니다.
 
 재현 명령 (WSL2 셸, 저장소 최신 상태에서. 샌드박스 삭제·재생성은 사용자 승인 후):
