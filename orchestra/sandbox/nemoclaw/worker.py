@@ -26,11 +26,14 @@ from ...observability.distributed import parent_scope
 from ...observability.tracing import tracing_scope
 from ..base import ExecResult
 from .cli import SANDBOX_NAME_RE
+from .deadline import ToolDeadlineExceeded, tool_deadline
 
 MAX_BYTES = 1_048_576
 # One protocol line wraps a request or result as a JSON string, which at most doubles its size.
 MAX_LINE_BYTES = 2 * MAX_BYTES + 1024
 PROTOCOL_VERSION = 1
+# How long past its limit a tool may ignore the interrupt before the sandbox worker process exits.
+HARD_EXIT_GRACE_S = 2.0
 
 
 class WorkerRequest(BaseModel):
@@ -53,7 +56,8 @@ class Worker:
 
     def __init__(self, sandbox: str, tools: dict[str, tuple[BaseTool, ToolSpec]], chain: FilterChain, *,
                  journal: Path, grants: dict[str, set[str]], security_mode: str = "closed",
-                 authority: CapabilityAuthority | None = None, observation_client: Any = None) -> None:
+                 authority: CapabilityAuthority | None = None, observation_client: Any = None,
+                 hard_exit_after_s: float | None = None) -> None:
         if SANDBOX_NAME_RE.fullmatch(sandbox) is None:
             raise ValueError("invalid sandbox name")
         self.sandbox, self.tools, self.chain = sandbox, tools, chain
@@ -61,6 +65,8 @@ class Worker:
         self.journal = journal
         self.authority = authority
         self.observation_client = observation_client
+        # None keeps the process alive, as an in-process caller needs; the sandbox entry point sets it.
+        self.hard_exit_after_s = hard_exit_after_s
         self.chain.security_control = SecurityControl()
         with self._db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS executions (key TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT)")
@@ -124,11 +130,12 @@ class Worker:
                     return ExecResult.model_validate_json(row[1]) if row[1] else ExecResult(
                         ok=False, error="worker_execution_indeterminate")
                 db.execute("INSERT INTO executions VALUES (?, ?, NULL)", (key, digest))
+        limit = min(req.timeout_s, spec.timeout_s)
         start = time.monotonic()
         try:
             scope = parent_scope(req.trace_headers, mode=self.security_mode, client=self.observation_client) if (
                 self.observation_client is not None) else tracing_scope("closed", None, enabled=False)
-            with scope:
+            with tool_deadline(limit, hard_exit_after_s=self.hard_exit_after_s), scope:
                 output = tool.invoke(args)
             if instruction_in(output):
                 result = ExecResult(ok=False, error="worker_taint_blocked")
@@ -140,11 +147,13 @@ class Worker:
                     result = ExecResult(ok=False, error="worker_post_tool_blocked")
                 else:
                     result = ExecResult(ok=True, output=mask_any(post.payload))
-            if time.monotonic() - start > min(req.timeout_s, spec.timeout_s):
+            if time.monotonic() - start > limit:
                 result = ExecResult(ok=False, error="worker_timeout")
             encoded = result.model_dump_json()
             if len(encoded.encode()) > MAX_BYTES:
                 result = ExecResult(ok=False, error="worker_output_too_large")
+        except ToolDeadlineExceeded:
+            result = ExecResult(ok=False, error="worker_timeout")
         except Exception:
             result = ExecResult(ok=False, error="worker_execution_failed")
         if req.idempotency_key:
@@ -207,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         authority = CapabilityAuthority(Path(os.environ["ORCHESTRA_WORKER_CAPABILITY_KEY_FILE"]).read_bytes(), grants)
         worker = Worker(sandbox, resolved.tools, build_chain(resolved.filter_specs, resolved.filter_impls),
                         journal=Path(os.environ["ORCHESTRA_WORKER_JOURNAL"]),
-                        grants=grants, authority=authority)
+                        grants=grants, authority=authority, hard_exit_after_s=HARD_EXIT_GRACE_S)
         if streams is not None:
             return serve(worker, *streams)
         raw = sys.stdin.buffer.read(MAX_BYTES + 1)

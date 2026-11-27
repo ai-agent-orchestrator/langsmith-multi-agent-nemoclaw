@@ -10,6 +10,9 @@ from .live import drift_errors, parse_policy, revision
 from .transport import Transport
 from ...security.capability import CapabilityAuthority
 
+# The worker starts its clock after verifying the request, so the host must outwait it to get the reply.
+REPLY_MARGIN_S = 5.0
+
 
 class NemoClawRunner:
     """Recheck declared network rules before each execution, including after startup."""
@@ -60,7 +63,7 @@ class NemoClawRunner:
             if self.authority is not None:
                 request.capability_token = self.authority.issue(request.model_dump())
             wire = request.model_dump_json()
-            response = self.transport.exchange(req.sandbox, wire, req.timeout_s)
+            response = self.transport.exchange(req.sandbox, wire, req.timeout_s + REPLY_MARGIN_S)
             if len(response.encode()) > 1_048_576:
                 raise ValueError
             data = json.loads(response)

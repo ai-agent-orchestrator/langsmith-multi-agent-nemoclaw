@@ -1,9 +1,9 @@
 """Claude Code read tools as local tools confined to `ORCHESTRA_WORKSPACE` (DESIGN §7.3).
 
 Every path is opened one component at a time relative to the workspace descriptor without following
-symlinks, so a link swapped in between a check and a read cannot redirect it. Work is bounded inside
-each tool because the worker cannot interrupt a running call; for the same reason search takes plain
-text, not a regular expression.
+symlinks, so a link swapped in between a check and a read cannot redirect it. Each tool bounds its own
+work so it ends well inside the worker's time limit; search takes plain text, not a regular expression,
+which keeps its cost proportional to the input.
 """
 from __future__ import annotations
 

@@ -65,8 +65,9 @@ python scripts/sync_third_party.py --check
 > - 실설치(2026-11-27): 사용자가 `orchestra-code` 샌드박스를 생성했고 워커 점검이 통과했다(REALITY §3.2). 되돌리기 `openshell sandbox delete orchestra-code`.
 > - `-m nemoclaw` 실연동 pytest 통과, 적용 정책 확인(REALITY §3.2).
 > - 샌드박스 툴(오프라인, 2026-11-27): 읽기 전용 `fs_read`·`fs_list`·`fs_glob`·`fs_grep`(`orchestra/catalog/tool_mapping.py`, DESIGN §7.3)을 `claude_dev` 팩의 `code_explorer`에게만 주고 `orchestra-code`에서 실행한다. 러너 → 서명 → 실제 워커 프로세스 → 필터 왕복을 `tests/test_workspace_sandbox.py`가 확인한다.
-> - 설계와 다른 점: `fs_grep`은 정규식이 아니라 문자열 검색(워커가 실행 중인 툴을 중단할 수 없어 폭주하는 정규식을 막을 수 없음), `nb_read`와 쓰기·셸·웹 툴 없음, `code_explorer`는 아직 어느 팀에도 넣지 않음.
+> - 설계와 다른 점: `fs_grep`은 정규식이 아니라 문자열 검색(비용이 입력 크기에 비례하도록), `nb_read`와 쓰기·셸·웹 툴 없음, `code_explorer`는 아직 어느 팀에도 넣지 않음.
 > - 실설치 툴 실행(2026-11-27, 사용자 실행): 샌드박스를 다시 만들어 `fs_list` 성공·워크스페이스 밖 경로 거부 확인(REALITY §3.3). 그 이미지에는 4단계 병합 코드가 없었다.
+> - 시간 초과 중단(오프라인, 2026-11-27): 워커가 제한 시간(요청·툴 중 짧은 쪽)에 툴을 중단하고 `worker_timeout`을 돌려준다. 중단이 통하지 않으면 2초 뒤 워커 프로세스가 종료하고, 같은 idempotency key 재시도는 `worker_execution_indeterminate`다(`deadline.py`, `tests/test_worker_deadline.py`). 호스트는 응답을 5초 더 기다린다. 툴 실행과 post_tool 필터에만 적용되며 실설치 확인은 남았다.
 > - 남음: 워크스페이스에 파일을 올리는 경로 결정. 네트워크 차단·재시작·부하 확인, 샌드박스 CPU·메모리 상한.
 > - 아래는 당시 명세 기록이다.
 
