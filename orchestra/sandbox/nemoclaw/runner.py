@@ -71,6 +71,10 @@ class NemoClawRunner:
                 raise ValueError
             result = ExecResult.model_validate(data)
             result.policy_revision = state["policy_revision"]
+            if result.egress_denied:
+                # Sandbox output is untrusted: only hosts this request declared are passed on.
+                declared = [host for host in req.egress if host in result.egress_denied]
+                result.egress_denied = declared or ["undeclared"]
             return result
         except Exception:
             return ExecResult(ok=False, error="sandbox_transport_failed")

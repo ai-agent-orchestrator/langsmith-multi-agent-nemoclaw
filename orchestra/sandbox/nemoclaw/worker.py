@@ -27,6 +27,7 @@ from ...observability.tracing import tracing_scope
 from ..base import ExecResult
 from .cli import SANDBOX_NAME_RE
 from .deadline import ToolDeadlineExceeded, tool_deadline
+from .proxy_refusal import proxy_refused
 
 MAX_BYTES = 1_048_576
 # One protocol line wraps a request or result as a JSON string, which at most doubles its size.
@@ -167,8 +168,13 @@ class Worker:
                 result = ExecResult(ok=False, error="worker_output_too_large")
         except ToolDeadlineExceeded:
             result = ExecResult(ok=False, error="worker_timeout")
-        except Exception:
-            result = ExecResult(ok=False, error="worker_execution_failed")
+        except Exception as error:
+            if proxy_refused(error):
+                # The exception does not name the host reliably, so report what the tool declared.
+                result = ExecResult(ok=False, error="egress_denied",
+                                    egress_denied=[rule.hostport for rule in spec.egress] or ["undeclared"])
+            else:
+                result = ExecResult(ok=False, error="worker_execution_failed")
         if req.idempotency_key:
             with self._db() as db:
                 db.execute("UPDATE executions SET result=? WHERE key=?", (result.model_dump_json(), key))

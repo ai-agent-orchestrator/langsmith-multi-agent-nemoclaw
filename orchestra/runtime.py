@@ -11,6 +11,7 @@ from .ledger import LedgerStore, MemoryLedgerStore, create_ledger_store, LedgerC
 from .security.audit_events import AuditUnavailable, audit_record
 from .security.control import SecurityControl
 from .security.decision import event_reason_code
+from .security.egress_isolation import EgressIsolationGuard
 
 if TYPE_CHECKING:
     from .security.audit import AuditLog
@@ -169,6 +170,8 @@ class Runtime:
     ledger_store: LedgerStore | None = field(default=None, repr=False)
     # 운영자는 security_control.reset(team) 으로만 열린 팀 차단기를 닫는다.
     security_control: SecurityControl = field(default_factory=SecurityControl, repr=False)
+    # 같은 샌드박스의 egress 거부가 반복되면 격리한다. 해제는 사람이 egress_guard.release(...) 로만 한다.
+    egress_guard: EgressIsolationGuard = field(default_factory=EgressIsolationGuard, repr=False)
 
     def __post_init__(self) -> None:
         """Share one explicitly selected store across runtime services; default remains memory."""
@@ -185,6 +188,8 @@ class Runtime:
         self.events.bind_store(store)
         self.services["ledger_store"] = store
         self.bind_audit()
+        if self.egress_guard.on_event is None:
+            self.egress_guard.on_event = lambda kind, data: self.events.add(kind, **data)
 
     def bind_audit(self) -> None:
         """Attach `services["audit_log"]` (an AuditLog) to the event log when the operator provides one."""

@@ -17,6 +17,7 @@ from .. import hitl
 from ..runtime import Runtime
 from ..sandbox.base import ExecRequest
 from ..sandbox.fake import FakeSandboxRunner
+from ..security.egress_isolation import IsolatingSandboxRunner
 from ..specs import SideEffect, ToolSpec
 from ..taint import ToolTaintBlocked, current_thread, instruction_in, reject_labelled_instructions
 from .base import Action, FilterContext, Stage
@@ -177,7 +178,11 @@ def wrap_tool(tool: BaseTool, spec: ToolSpec, chain: FilterChain, rt: Runtime, *
                 egress=[e.hostport for e in spec.egress], idempotency_key=args.get("idempotency_key") or None,
                 local_fn=lambda **kw: tool.invoke(kw), agent=agent,
             )
-            res = rt.sandbox.exec(req)
+            # Every sandbox call passes the isolation check, whichever runner is configured.
+            runner = rt.sandbox
+            if not isinstance(runner, IsolatingSandboxRunner):
+                runner = IsolatingSandboxRunner(runner, rt.egress_guard)
+            res = runner.exec(req)
             rt.events.add("sandbox", tool=tool.name, sandbox=req.sandbox, ok=res.ok, error=res.error,
                           egress_denied=res.egress_denied, policy_revision=res.policy_revision)
             if not res.ok:
