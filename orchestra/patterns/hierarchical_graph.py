@@ -24,6 +24,7 @@ from ..registry import Resolved, build_packs, resolve
 from ..runtime import Runtime
 from ..specs import AgentSpec, OrgSpec, TeamSpec
 from .hierarchical_tools import make_escalate, make_handoff, make_report
+from .parallel_team import build_parallel_team, check_parallel_teams
 
 
 @dataclass
@@ -115,6 +116,7 @@ def build_hierarchical_app(
     declared = res.org
     org = assert_valid(normalize_fanout(declared))
     res.org = org
+    check_parallel_teams(org, res)
 
     chain = build_chain(res.filter_specs, res.filter_impls, rt.events)
     rt.security_control.teams.update(_circuit_teams(declared, org))
@@ -141,6 +143,10 @@ def build_hierarchical_app(
         return agent_backend.agent(a.model_copy(update={"prompt": prompt_text(a.prompt)}), model, tools, chain)
 
     def build_team(t: TeamSpec, is_root: bool) -> Any:
+        saver = (checkpointer or MemorySaver()) if is_root else None
+        if t.parallel:
+            parallel = build_parallel_team(t, [(built[m], m in org.teams) for m in t.members], rt)
+            return parallel.compile(checkpointer=saver, name=t.name)
         members = [built[m] for m in t.members]
         model = model_factory(role=t.name, alias=t.model, sensitivity="public", kind="supervisor")
         sup = agent_backend.supervisor(t.model_copy(update={"prompt": prompt_text(t.prompt)}), model, members, chain,
@@ -151,7 +157,7 @@ def build_hierarchical_app(
         for m in t.members:
             if m in org.agents and org.agents[m].handoff_to:
                 _detach_to_supervisor(sup, org.agents[m].name, t.name)
-        return sup.compile(checkpointer=(checkpointer or MemorySaver()) if is_root else None, name=t.name)
+        return sup.compile(checkpointer=saver, name=t.name)
 
     def build(name: str, is_root: bool = False) -> Runnable:
         if name in built:

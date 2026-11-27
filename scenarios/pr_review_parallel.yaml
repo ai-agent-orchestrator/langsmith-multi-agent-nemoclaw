@@ -1,0 +1,28 @@
+id: pr_review_parallel
+title: 리뷰어 6명 병렬 PR 리뷰 (자동 분할 → 합산 → 확신도 80 컷오프)
+org: orgs/claude_dev.yaml
+request: |
+  이 PR 을 리뷰해줘.
+  app/payment.py:42  승인 결과를 확인하기 전에 capture 를 호출하고, 예외는 로그 없이 넘긴다.
+  app/models.py:7    amount 필드에 음수 제한이 없다.
+  tests/test_payment.py:1  승인 거절 경로 테스트가 없다.
+invariants: true
+script:
+  engineering_director:
+    - tool_calls: [{name: transfer_to_review_lead}]
+    - content: 리뷰 결과 3건이 남았습니다. 승인 확인 전 capture, 승인 거절 테스트 누락, 금액 음수 허용 순으로 고쳐 주세요.
+  code_reviewer:
+    - content: '[{"file": "app/payment.py", "line": 42, "summary": "승인 확인 전에 capture 를 호출한다", "confidence": 90}, {"file": "app/api.py", "line": 10, "summary": "함수 이름이 모호하다", "confidence": 50}]'
+  code_simplifier:
+    - content: '[{"file": "app/util.py", "line": 3, "summary": "중복 분기를 합칠 수 있다", "confidence": 40}]'
+  comment_analyzer:
+    - content: '[{"file": "app/models.py", "line": 7, "summary": "주석은 양수라고 하지만 검증이 없다", "confidence": 76}]'
+  pr_test_analyzer:
+    - content: '[{"file": "tests/test_payment.py", "line": 1, "summary": "승인 거절 경로 테스트가 없다", "confidence": 85}]'
+  silent_failure_hunter:
+    - content: '[{"file": "app/payment.py", "line": 42, "summary": "예외를 삼켜 실패가 성공처럼 보인다", "confidence": 75}]'
+  type_design_analyzer:
+    - content: '[{"file": "app/models.py", "line": 7, "summary": "금액 타입이 음수를 허용한다", "confidence": 78}]'
+expect:
+  agents_in_order: [engineering_director, code_reviewer]
+  flags: {blocked: false}

@@ -1,0 +1,25 @@
+# DESIGN §7.4 의 일부만 선언한다: 리뷰 팀만 구현했고 feature_lead / platform_lead 는 아직 없다.
+name: claude_dev
+domains: [claude_dev]
+root: engineering_director
+teams:
+  engineering_director:
+    prompt: "엔지니어링 총괄. PR 리뷰 요청은 review_lead 에게 맡기고, 남은 이슈를 확신도 순으로 요약한다. complete 가 false 면 리뷰가 불완전하다고 알린다."
+    members: [review_lead]
+    model: opus
+  review_lead:
+    # 6명 > max_fanout 5 이므로 review_lead_sub0 / sub1 로 자동 분할된다.
+    members:
+      - pr-review-toolkit/code-reviewer
+      - pr-review-toolkit/code-simplifier
+      - pr-review-toolkit/comment-analyzer
+      - pr-review-toolkit/pr-test-analyzer
+      - pr-review-toolkit/silent-failure-hunter
+      - pr-review-toolkit/type-design-analyzer
+    parallel: true
+    reducer: review_aggregate
+filters:
+  - {name: request_gate, stages: [pre_request], order: 10}
+  - {name: side_effect_policy, stages: [pre_tool], order: 50}
+  - {name: pii_mask, stages: [post_tool, pre_response], order: 90}
+  - {name: budget, stages: [pre_tool], order: 5, params: {max_tool_calls: 20}}

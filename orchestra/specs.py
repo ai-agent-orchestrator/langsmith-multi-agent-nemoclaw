@@ -93,7 +93,7 @@ class TeamSpec(BaseModel):
     model: str = "inherit"
     output_mode: Literal["last_message", "full_history"] = "last_message"
     max_fanout: int = Field(default=5, ge=2, le=8)
-    parallel: bool = False        # 구현은 M6(Codex): Send 팬아웃
+    parallel: bool = False        # Send 팬아웃 (patterns/parallel_team.py), reducer 필수
     reducer: Optional[str] = None
     capabilities: CapabilitySpec = Field(default_factory=CapabilitySpec)
 
