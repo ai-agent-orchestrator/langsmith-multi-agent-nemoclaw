@@ -149,6 +149,23 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 ```
 합격: `WORKER_PROBE=PASS`, pytest `1 passed`.
 
+### 3.4 격리 점검 — 도구 준비, **실설치 미확인**
+`python scripts/nemoclaw_isolation_check.py` (WSL2, `orchestra-code` 가 있을 때). 샌드박스를 다시 만들지 않는다. 점검 프로그램(`orchestra/sandbox/nemoclaw/isolation_probe.py`)을 워커와 같은 SSH 경로의 표준입력으로 보내 실행하고, 만들 수 있었던 파일은 지운다.
+
+| 점검 | 통과 조건 |
+|---|---|
+| `control_tmp_write` | `/tmp` 쓰기 성공(대조군) |
+| `direct_tcp_refused` | 프록시를 거치지 않는 TCP 연결 실패. 호스트에서도 닿지 않으면 미확인 |
+| `proxy_tunnel_refused`·`proxy_http_refused` | 샌드박스 프록시가 `CONNECT`·평문 HTTP 를 403 으로 거절 |
+| `write_var_tmp_refused`·`write_dev_shm_refused` | 누구나 쓸 수 있지만 정책에 없는 디렉터리에 쓰기 거부(Landlock) |
+| `read_unlisted_refused` | 누구나 읽을 수 있지만 정책에 없는 파일 열기 거부(Landlock) |
+| `write_code_refused` | `/opt/orchestra` 쓰기 거부 |
+| `not_root`·`no_capabilities`·`no_new_privileges` | 권한 없는 프로세스 |
+| `memfd_refused` | `memfd_create` 가 EPERM(seccomp) |
+
+`ISOLATION=PASS` 는 전부 통과, `FAIL` 은 하나라도 허용됨, `INCOMPLETE` 는 확인하지 못한 항목이 있음. 판정하지 않는 정보: DNS 해석 여부, 비밀값 모양의 환경변수 **이름**, `--inference-host inference.local` 을 주면 프록시가 그 터널을 여는지(OpenShell 0.0.116 `proxy.rs` 는 네트워크 정책 평가 전에 `inference.local:443` 터널을 연다 — 소스 확인).
+점검 범위 밖: CPU·메모리 상한, 샌드박스 간 격리, DNS 를 통한 유출.
+
 ### 점검 절차
 ```bash
 bash -l scripts/nemoclaw_lock_doctor.sh       # 잠금 상태 먼저
