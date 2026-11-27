@@ -1,0 +1,13 @@
+name: concert_demo
+domains: [concert_demo]
+root: concert_director
+teams:
+  concert_director:
+    prompt: "공연 안내 총괄. 조회·견적은 concert_catalog, 좌석 점유는 concert_booking 에게 맡기고 결과만 요약한다. 결제는 하지 않는다."
+    members: [concert_demo/concert_catalog, concert_demo/concert_booking]
+    model: sonnet
+filters:
+  - {name: request_gate, stages: [pre_request], order: 10}
+  - {name: side_effect_policy, stages: [pre_tool], order: 50}
+  - {name: pii_mask, stages: [post_tool, pre_response], order: 90}
+  - {name: budget, stages: [pre_tool], order: 5, params: {max_tool_calls: 20}}
