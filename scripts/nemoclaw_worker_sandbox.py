@@ -6,6 +6,9 @@ it is missing. It never changes, rebuilds or deletes an existing sandbox.
 
     python scripts/nemoclaw_worker_sandbox.py --python-base 'python:3.11-slim@sha256:<digest>'
     python scripts/nemoclaw_worker_sandbox.py --python-base ... --yes
+    python scripts/nemoclaw_worker_sandbox.py --python-base ... --cpu 1 --memory 1Gi --yes
+
+--cpu and --memory cap the new sandbox. Without them no limit is requested.
 """
 from __future__ import annotations
 
@@ -28,6 +31,9 @@ SANDBOX = "orchestra-code"
 KEY_PATH = "/sandbox/state/capability.key"
 CONTEXT_PATHS = ("nemoclaw/requirements-worker.lock", "orchestra", "domains", "orgs", "third_party")
 _BASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}")
+# The forms OpenShell 0.0.116 accepts, except a bare memory number: it means bytes, so a unit is required.
+_CPU_RE = re.compile(r"[0-9]{1,6}m|[0-9]{1,4}(?:\.[0-9]{1,3})?")
+_MEMORY_RE = re.compile(r"[0-9]{1,12}(?:Ki|Mi|Gi|Ti|K|M|G|T)")
 _INSTALL_KEY = f"umask 077 && cat > {KEY_PATH}.new && chmod 400 {KEY_PATH}.new && mv -f {KEY_PATH}.new {KEY_PATH}"
 
 
@@ -56,10 +62,29 @@ def stage_context(destination: Path, python_base: str, root: Path = ROOT) -> int
     return len(names) + 1
 
 
-def create_command(openshell: str, context: Path, policy: Path) -> list[str]:
+def _quantity(value: str, pattern: re.Pattern[str], example: str) -> str:
+    if pattern.fullmatch(value) is None or not value.strip("0.mKiMGT"):
+        raise argparse.ArgumentTypeError(f"expected a value above zero such as {example}")
+    return value
+
+
+def cpu_quantity(value: str) -> str:
+    """An argparse type for cores or millicores."""
+    return _quantity(value, _CPU_RE, "2, 0.5 or 500m")
+
+
+def memory_quantity(value: str) -> str:
+    """An argparse type for a memory size with its unit."""
+    return _quantity(value, _MEMORY_RE, "512Mi, 2Gi or 4G")
+
+
+def create_command(openshell: str, context: Path, policy: Path, *, cpu: str | None = None,
+                   memory: str | None = None) -> list[str]:
     """Fixed argv; `sleep infinity` keeps the main process alive because its exit stops the sandbox."""
+    limits = [part for flag, value in (("--cpu", cpu), ("--memory", memory)) if value is not None
+              for part in (flag, value)]
     return [openshell, "sandbox", "create", "--name", SANDBOX, "--from", str(context), "--policy", str(policy),
-            "--no-auto-providers", "--no-tty", "--detach", "--", "sleep", "infinity"]
+            *limits, "--no-auto-providers", "--no-tty", "--detach", "--", "sleep", "infinity"]
 
 
 def load_or_create_master_key(path: Path) -> bytes:
@@ -120,7 +145,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe-only", action="store_true", help="probe an existing worker sandbox")
     parser.add_argument("--key-file", type=Path, default=None,
                         help="host master key (default: $ORCHESTRA_CAPABILITY_KEY_FILE or ~/.config/orchestra/)")
+    parser.add_argument("--cpu", type=cpu_quantity, default=None, help="CPU limit for the new sandbox")
+    parser.add_argument("--memory", type=memory_quantity, default=None, help="memory limit for the new sandbox")
     args = parser.parse_args(argv)
+    if args.probe_only and (args.cpu or args.memory):
+        parser.error("limits apply only when a sandbox is created, not with --probe-only")
     sys.path.insert(0, str(ROOT))
     from orchestra.sandbox.nemoclaw.cli import NemoClawCli
     from orchestra.sandbox.nemoclaw.ssh_launcher import OpenShellSshLauncher
@@ -144,9 +173,10 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, OSError, subprocess.SubprocessError) as error:
             print(f"FAIL staging: {error}")
             return 1
-        command = create_command(openshell, context, policy)
+        command = create_command(openshell, context, policy, cpu=args.cpu, memory=args.memory)
         print(f"staged {count} files")
         print("create:", shlex.join(command))
+        print(f"limits: cpu={args.cpu or 'not set'} memory={args.memory or 'not set'}")
         print(f"then: install the derived key at {KEY_PATH} over ssh and probe the worker")
         if not args.yes:
             print("DRY RUN - nothing was created. Add --yes to create the sandbox.")

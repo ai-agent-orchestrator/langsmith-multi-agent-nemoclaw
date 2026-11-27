@@ -189,6 +189,21 @@ ORCHESTRA_NEMOCLAW_LIVE_SANDBOX=orchestra-code ORCHESTRA_CAPABILITY_KEY_FILE="$H
 - 라우트는 **OpenShell 워크스페이스 단위**다(`openshell-server/src/inference.rs` `get_inference_bundle` → 샌드박스의 워크스페이스, `docs/sandboxes/manage-workspaces.mdx`). 라우트가 없으면 503 `cluster inference is not configured`.
 - 막는 방법(적용 전, 게이트웨이 설정 변경이라 사용자 승인 필요): 추론 라우트를 두지 않는 별도 워크스페이스(`openshell workspace create --name orchestra-worker`)에 워커 샌드박스를 만들고, 호스트의 OpenShell 호출에 `OPENSHELL_WORKSPACE=orchestra-worker` 를 준다. 그 워크스페이스에 나중에 라우트를 설정하면 다시 열리므로 점검으로 확인한다.
 
+### 3.5 부하·재시작·메모리 점검과 자원 상한 — **실설치 미확인**
+`python scripts/nemoclaw_load_check.py` (WSL2, `orchestra-code` 가 있고 다른 호출이 없을 때). 존재하지 않는 툴만 요청하므로 툴은 실행되지 않고 키도 필요 없다. 자기가 띄운 워커만 종료하며 정책·파일·설정은 바꾸지 않는다.
+
+| 줄 | 보는 것 | FAIL 조건 |
+|---|---|---|
+| `STARTUP`·`SEQUENTIAL`·`CONCURRENT` | 첫 요청, 순차, 동시 호출자의 지연(p50·p95·최대)과 처리량 | 요청이 하나라도 실패 |
+| `ONE_WORKER`·`MANY_WORKERS` | 워커 1개와 N개의 메모리(RSS), 샌드박스 안에서 보이는 합계 | 워커 수가 어긋남 |
+| `AFTER_WORKER_CRASH` | 샌드박스 안 워커를 강제 종료한 뒤 두 번 안에 새 워커가 응답 | 회복 실패 |
+| `AFTER_CONNECTION_LOSS` | 호스트의 SSH 만 끊었을 때 샌드박스의 워커가 15초 안에 끝남 | 워커가 남음 |
+| `CLEANUP` | 점검이 끝난 뒤 남은 워커 | 워커가 남음 |
+
+`LOAD=PASS`/`FAIL`/`INCOMPLETE`. 샌드박스 안에서 프로세스를 볼 수 없거나 신호를 보낼 수 없으면 `INCOMPLETE`다. 오프라인에서는 로컬 프로세스를 대신 세워 확인했다(`tests/test_load_check.py`). 메모리 수치에는 샌드박스 감독 프로세스처럼 보이지 않는 프로세스가 빠질 수 있으므로, 상한을 정할 때는 호스트의 `docker stats --no-stream` 값을 함께 본다.
+
+**자원 상한 (OpenShell 0.0.116 소스·문서 확인):** `openshell sandbox create --cpu <2|0.5|500m> --memory <512Mi|2Gi>`. Docker 드라이버는 컨테이너의 `NanoCpus`·`Memory` 로 적용한다. `Memory` 만 지정하므로 Docker 기본값에 따라 호스트에 swap 이 있으면 그만큼 더 쓸 수 있다. 프로세스 수 상한은 드라이버 기본 2048 이다. 설치 스크립트는 값이 있을 때만 전달하고, 단위 없는 메모리 값은 바이트로 해석되므로 거절한다. 상한을 넘었을 때 실설치에서 어떻게 실패하는지는 확인하지 않았다.
+
 ### 점검 절차
 ```bash
 bash -l scripts/nemoclaw_lock_doctor.sh       # 잠금 상태 먼저
